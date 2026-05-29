@@ -10,12 +10,17 @@ Project name: **flockdar** (passive RF detection of Flock Safety ALPR cameras).
 uv sync                                      # install dependencies
 uv run tui.py <wigle.sqlite>                 # launch TUI
 uv run tui.py <WigleWifi_export.csv.gz>      # TUI from CSV export
-uv run python -c "import detect, tui, signatures; print('OK')"  # import check
+uv run tui.py <flock-0001.ndjson>            # TUI from an ESP32 SD-card log
+uv run tui.py --serial /dev/ttyUSB0          # live ESP32 capture
+uv run python -m serial_import <port|log> [out.sqlite]  # headless ingest
+uv run python -c "import detect, tui, signatures, serial_import; print('OK')"  # import check
 uv run pytest                                # run tests
 uv run esp32/gen_oui_header.py               # regenerate esp32/oui_list.h
+
+cd esp32 && pio run -e esp32-s3 -t upload    # build + flash firmware (PlatformIO)
 ```
 
-There are no tests or linter config yet.
+Per-OS toolchain setup (uv, PlatformIO, serial drivers) is in `SETUP.md`.
 
 ## Architecture
 
@@ -35,7 +40,9 @@ signatures.py  →  detect.py  →  tui.py
 
 **`discover.py`** — WiGLE discovery with disk cache. `WiGLEDiscovery.discover()` fetches BLE name + WiFi SSID results from WiGLE, converts to `Hit` objects via `analyze()`, and caches to `~/.cache/flock-wigle/wigle-discovery.json`. Cache is `partial=True` if rate-limited mid-run — served regardless of TTL with a retry hint. `save_cache()` is called after each individual query so work is never fully lost on 429.
 
-**`esp32/`** — Design spec and tooling for the planned ESP32 companion firmware. `gen_oui_header.py` regenerates `oui_list.h` from `signatures.py` so OUI lists stay in sync between Python and C.
+**`serial_import.py`** — no UI imports. Ingests the flockdar-esp32 JSON stream from a live serial port (`serial_lines`, lazy `pyserial`) or a saved NDJSON log (`log_lines`, the SD-card file). `verify_line()` checks the HMAC of `wifi`/`ble` lines by stripping the trailing `,"sig":"<hex>"` to reconstruct the signed bytes; `gps` lines update a running position that detections inherit. `iter_records`/`iter_hits` map each line to a `detect` Record / `Hit` (adding an `ESP32_LIVE` provenance signal). `merge_hit()` dedups by MAC; `load_log()` returns deduped hits; `write_sqlite()` emits a WiGLE-format `network` table so output is re-openable by the TUI. CLI: `python -m serial_import <port|log> [out.sqlite]`. HMAC key from `--key`, `$FLOCKDAR_HMAC_KEY`, or the firmware default. The TUI consumes this in `--serial` live mode and when opening `.ndjson`/`.jsonl`/`.log` files.
+
+**`esp32/`** — Working PlatformIO firmware for the ESP32 companion scanner. Scanners (`wifi_scanner` promiscuous, `ble_scanner` NimBLE) push `Detection` records onto a FreeRTOS queue; the main loop drains it and `serial_out` serialises + HMAC-signs each line to USB serial and (with `FD_ENABLE_SD`) the microSD log. `match.cpp` checks OUI/mfgrid/BLE-name against the generated `oui_list.h`. Optional `gps`/`display`/`sdlog` are compile-guarded (`FD_ENABLE_GPS`/`_OLED`/`_SD`). `gen_oui_header.py` regenerates `oui_list.h` (OUIs, mfgrids, **and** BLE name patterns) from `signatures.py` so Python and C stay in sync — re-run after editing signatures. Build envs: `esp32-s3`, `esp32`, `esp32-s3-sd`, `esp32-s3-full`. The serial/SD JSON protocol and signing scheme are documented in `esp32/README.md`.
 
 ## Input formats
 

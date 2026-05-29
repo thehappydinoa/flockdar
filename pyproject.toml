@@ -19,6 +19,7 @@ classifiers = [
 ]
 dependencies = [
     "httpx>=0.28.1",
+    "pyserial>=3.5",
     "textual>=8.2.7",
 ]
 

@@ -147,13 +147,35 @@ a configurable URL at boot time (OTA OUI update, v0.4 feature).
 uv run tui.py --serial /dev/ttyUSB0          # Linux / macOS
 uv run tui.py --serial COM3                  # Windows
 
-# Headless logger
-uv run python -m flockdar.serial_import /dev/ttyUSB0 output.sqlite
+# Headless logger -> WiGLE-format SQLite the TUI can open (Ctrl-C to stop)
+uv run python -m serial_import /dev/ttyUSB0 output.sqlite
+uv run tui.py output.sqlite
 ```
 
-The serial reader converts each JSON line to a `Hit` via the existing
-`detect.analyze()` pipeline. All TUI features — clustering, enrichment,
-OSM contribution, GeoJSON export — work identically on live and archived data.
+`serial_import.py` converts each JSON line to a `Hit` via the existing
+`detect.analyze()` pipeline, verifying the HMAC signature first (`gps` lines
+update the running position that detections inherit). All TUI features —
+clustering, enrichment, OSM contribution, GeoJSON export — work identically on
+live and archived data. Live mode rings the bell and notifies on each new
+HIGH-confidence device.
+
+The HMAC key must match the firmware's `-DFD_HMAC_KEY` build flag. Set it for
+the receiver with `--key`, the `$FLOCKDAR_HMAC_KEY` env var, or leave the
+default (`flockdar-dev-key`) on both sides for bench testing.
+
+### Offline (SD card) wardriving
+
+Build the `esp32-s3-sd` (or `esp32-s3-full`) env to log untethered — the
+firmware writes the same newline-delimited JSON to `/flock-NNNN.ndjson` on a
+microSD card (a fresh file per boot). Replay it later:
+
+```bash
+uv run python -m serial_import flock-0001.ndjson output.sqlite
+uv run tui.py flock-0001.ndjson         # or open the NDJSON log directly
+```
+
+The TUI opens `.ndjson` / `.jsonl` / `.log` files natively, so an SD log needs
+no conversion step.
 
 ---
 
@@ -164,7 +186,7 @@ handles pre-build steps (OUI header generation, HMAC key derivation).
 
 ```
 esp32/
-  platformio.ini        PlatformIO project config (envs: esp32-s3, esp32, esp32-s3-full)
+  platformio.ini        PlatformIO config (envs: esp32-s3, esp32, esp32-s3-sd, esp32-s3-full)
   gen_oui_header.py     Generates oui_list.h from signatures.py
   oui_list.h            Auto-generated — do not edit
   src/
@@ -175,9 +197,10 @@ esp32/
     wifi_scanner.cpp/.h Promiscuous mode + frame parsing + channel hop
     ble_scanner.cpp/.h  NimBLE passive advertisement scanner
     gps.cpp/.h          GPS NMEA parser (FD_ENABLE_GPS)
+    sdlog.cpp/.h        microSD NDJSON logger (FD_ENABLE_SD)
     signing.cpp/.h      HMAC-SHA256 frame signing
     display.cpp/.h      SSD1306 OLED status (FD_ENABLE_OLED)
-    serial_out.cpp/.h   JSON serialisation + signing + output
+    serial_out.cpp/.h   JSON serialisation + signing + output (serial + SD)
 ```
 
 ---
