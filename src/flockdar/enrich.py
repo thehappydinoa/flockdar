@@ -41,7 +41,7 @@ from typing import Any, Callable
 
 import httpx
 
-from detect import Hit
+from .detect import Hit
 
 # ---------------------------------------------------------------------------
 # Types

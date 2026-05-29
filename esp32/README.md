@@ -144,15 +144,15 @@ a configurable URL at boot time (OTA OUI update, v0.4 feature).
 
 ```bash
 # Live TUI — reads from the device as you drive
-uv run tui.py --serial /dev/ttyUSB0          # Linux / macOS
-uv run tui.py --serial COM3                  # Windows
+uv run flockdar --serial /dev/ttyUSB0        # Linux / macOS
+uv run flockdar --serial COM3                # Windows
 
 # Headless logger -> WiGLE-format SQLite the TUI can open (Ctrl-C to stop)
-uv run python -m serial_import /dev/ttyUSB0 output.sqlite
-uv run tui.py output.sqlite
+uv run flockdar-ingest /dev/ttyUSB0 output.sqlite
+uv run flockdar output.sqlite
 ```
 
-`serial_import.py` converts each JSON line to a `Hit` via the existing
+The `flockdar.serial_import` module converts each JSON line to a `Hit` via the existing
 `detect.analyze()` pipeline, verifying the HMAC signature first (`gps` lines
 update the running position that detections inherit). All TUI features —
 clustering, enrichment, OSM contribution, GeoJSON export — work identically on
@@ -170,8 +170,8 @@ firmware writes the same newline-delimited JSON to `/flock-NNNN.ndjson` on a
 microSD card (a fresh file per boot). Replay it later:
 
 ```bash
-uv run python -m serial_import flock-0001.ndjson output.sqlite
-uv run tui.py flock-0001.ndjson         # or open the NDJSON log directly
+uv run flockdar-ingest flock-0001.ndjson output.sqlite
+uv run flockdar flock-0001.ndjson       # or open the NDJSON log directly
 ```
 
 The TUI opens `.ndjson` / `.jsonl` / `.log` files natively, so an SD log needs

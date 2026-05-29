@@ -11,10 +11,10 @@ Cross-platform install instructions for every flockdar tool, on **macOS**,
 
 ---
 
-## 1. Python tool (`tui.py`)
+## 1. Python tool (`flockdar`)
 
-The detector, TUI, enrichment, and the `serial_import` ingest all run on
-Python ≥ 3.11, managed by [uv](https://docs.astral.sh/uv/).
+The detector, TUI, enrichment, and the serial ingest all ship in the
+`flockdar` package (Python ≥ 3.11), managed by [uv](https://docs.astral.sh/uv/).
 
 ### Install uv
 
@@ -28,12 +28,20 @@ Then, from the repo root:
 
 ```bash
 uv sync                              # creates .venv and installs deps (incl. pyserial)
-uv run tui.py wigle_backup.sqlite    # analyse a WiGLE Android SQLite backup
-uv run tui.py WigleWifi_export.csv.gz
+uv run flockdar wigle_backup.sqlite    # analyse a WiGLE Android SQLite backup
+uv run flockdar WigleWifi_export.csv.gz
 uv run pytest                        # run the test suite
 ```
 
 `uv sync` is the only install step — it provisions Python itself if needed.
+
+Or install the published package globally (no clone needed):
+
+```bash
+pipx install flockdar          # or: uv tool install flockdar
+flockdar wigle_backup.sqlite
+flockdar-ingest /dev/ttyUSB0   # headless serial/NDJSON ingest
+```
 
 ---
 
@@ -120,16 +128,16 @@ With the firmware flashed and the port identified:
 
 ```bash
 # Live TUI as you drive (rings/notifies on each new HIGH-confidence device)
-uv run tui.py --serial /dev/ttyUSB0          # macOS / Linux
-uv run tui.py --serial COM3                  # Windows
+uv run flockdar --serial /dev/ttyUSB0          # macOS / Linux
+uv run flockdar --serial COM3                  # Windows
 
 # Headless: stream to a WiGLE-format SQLite the TUI can open later (Ctrl-C stops)
-uv run python -m serial_import /dev/ttyUSB0 capture.sqlite
-uv run tui.py capture.sqlite
+uv run python -m flockdar.serial_import /dev/ttyUSB0 capture.sqlite
+uv run flockdar capture.sqlite
 
 # Untethered: replay an SD-card log written by the esp32-s3-sd firmware
-uv run tui.py flock-0001.ndjson              # open the NDJSON log directly
-uv run python -m serial_import flock-0001.ndjson capture.sqlite
+uv run flockdar flock-0001.ndjson              # open the NDJSON log directly
+uv run python -m flockdar.serial_import flock-0001.ndjson capture.sqlite
 ```
 
 The HMAC key must match the firmware's `-DFD_HMAC_KEY`. Override the receiver

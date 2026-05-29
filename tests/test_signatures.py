@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-import signatures as sig
+from flockdar import signatures as sig
 
 
 class TestFlockCameraSSIDRe:
