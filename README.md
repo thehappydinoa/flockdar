@@ -26,7 +26,9 @@ Works with both the **WiGLE Android app SQLite backup** and **WiGLE CSV exports*
 
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/getting-started/installation/).
+Requires [uv](https://docs.astral.sh/uv/getting-started/installation/). Full
+per-OS setup for every tool (Python, ESP32 toolchain, serial drivers) is in
+[SETUP.md](SETUP.md).
 
 ```bash
 uv sync
@@ -34,6 +36,12 @@ uv run tui.py wigle_backup.sqlite
 uv run tui.py WigleWifi_export.csv.gz
 # or via installed script:
 flockdar wigle_backup.sqlite
+
+# live capture from an ESP32 scanner (see SETUP.md):
+uv run tui.py --serial /dev/ttyUSB0          # macOS / Linux
+uv run tui.py --serial COM3                  # Windows
+# replay an SD-card log from the firmware:
+uv run tui.py flock-0001.ndjson
 ```
 
 ### TUI keybindings
@@ -95,7 +103,7 @@ wigle.net → My Account → Downloads, or app → Menu → Export to SD.
 uv run pytest
 ```
 
-102 tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTransport`), and `signatures.py` pattern correctness.
+Tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTransport`), `signatures.py` pattern correctness, and `serial_import.py` HMAC verification / NDJSON ingest.
 
 ---
 
@@ -130,29 +138,35 @@ Raven firmware exposes a readable GATT tree without authentication when within B
 ## Files
 
 ```
-tui.py           Textual TUI — main entry point
+tui.py           Textual TUI — main entry point (file or --serial live mode)
 detect.py        Detection logic (no UI dependency, importable)
 enrich.py        Async enrichers: OSM/DeFlock, ALPRWatch, WiGLE API
 discover.py      WiGLE-based discovery of unseen Flock cameras (cached)
+serial_import.py ESP32 serial / NDJSON ingest — verify HMAC, map to Hits
 signatures.py    All OUI prefixes, BLE UUIDs, SSID/name patterns
-esp32/           Planned ESP32 companion firmware (design phase)
+esp32/           ESP32 companion firmware (PlatformIO) + OUI header generator
 tests/           pytest suite (asyncio_mode=auto)
+SETUP.md         Per-OS setup for every tool (macOS / Linux / Windows)
 pyproject.toml   uv project — dependencies and scripts
 CLAUDE.md        Architecture notes for AI coding assistants
 ```
 
-## ESP32 companion (planned)
+## ESP32 companion
 
-`esp32/` contains the design spec for a companion firmware module that
-runs on an ESP32 and detects Flock cameras in real time via:
+`esp32/` is a working PlatformIO firmware that detects Flock cameras in real
+time and streams them to this tool:
 
-- **WiFi promiscuous mode** — OUI-matched probe requests + `addr1` receiver matching
+- **WiFi promiscuous mode** — OUI-matched `addr2`/`addr1` (catches sleeping
+  cameras as the receiver) + wildcard probe requests
 - **BLE scanning** — `FS Ext Battery`, manufacturer ID 2504, etc.
-- **JSON over USB serial** — output consumed by `flockdar --serial /dev/ttyUSB0`
+- **Signed JSON over USB serial** — HMAC-verified by `serial_import.py` and fed
+  into the live TUI via `uv run tui.py --serial /dev/ttyUSB0`
+- **microSD logging** — untethered wardriving to `flock-NNNN.ndjson`, replayed
+  with `uv run tui.py flock-0001.ndjson`
 
-See [`esp32/README.md`](esp32/README.md) for hardware list, output format, and
-integration details. `esp32/gen_oui_header.py` generates the C header from
-`signatures.py` so the OUI list stays in sync.
+See [`esp32/README.md`](esp32/README.md) for hardware, output format, and build
+envs, and [SETUP.md](SETUP.md) for the toolchain install. `gen_oui_header.py`
+generates the C signature header from `signatures.py` so the lists stay in sync.
 
 ---
 

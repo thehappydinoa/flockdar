@@ -19,6 +19,9 @@
 #ifdef FD_ENABLE_OLED
 #include "display.h"
 #endif
+#ifdef FD_ENABLE_SD
+#include "sdlog.h"
+#endif
 
 QueueHandle_t g_det_queue = nullptr;
 
@@ -31,6 +34,9 @@ void setup() {
 #ifdef FD_ENABLE_OLED
   display_begin();
 #endif
+#ifdef FD_ENABLE_SD
+  sdlog_begin();
+#endif
 #ifdef FD_ENABLE_GPS
   gps_begin();
 #endif
@@ -39,6 +45,9 @@ void setup() {
   ble_scanner_begin();
 
   serial_out_info("flockdar-esp32 online");
+#ifdef FD_ENABLE_SD
+  serial_out_info(sdlog_ok() ? "sd log open" : "sd card not found");
+#endif
 }
 
 void loop() {
@@ -54,6 +63,9 @@ void loop() {
 #endif
 #ifdef FD_ENABLE_OLED
   display_loop();
+#endif
+#ifdef FD_ENABLE_SD
+  sdlog_loop();
 #endif
 
   delay(2);

@@ -42,6 +42,19 @@
 #endif
 #endif  // FD_ENABLE_OLED
 
+#ifdef FD_ENABLE_SD
+#ifndef FD_SD_CS
+#define FD_SD_CS 5  // microSD SPI chip-select pin
+#endif
+// Define all three to use a non-default SPI bus for the card:
+// #define FD_SD_SCK 18
+// #define FD_SD_MISO 19
+// #define FD_SD_MOSI 23
+#ifndef FD_SD_FLUSH_MS
+#define FD_SD_FLUSH_MS 3000  // flush the log to card at most this often
+#endif
+#endif  // FD_ENABLE_SD
+
 #ifdef FD_ENABLE_GPS
 #ifndef FD_GPS_UART
 #define FD_GPS_UART 1
