@@ -1,0 +1,60 @@
+// flockdar-esp32 — passive Flock Safety camera detection.
+//
+// Two scanners run concurrently and push Detection records onto a shared
+// queue: WiFi promiscuous mode (OUI match on addr1/addr2 + wildcard probe
+// requests) and a NimBLE passive scan (name + manufacturer-ID match). The
+// main loop drains the queue, signs each detection, and streams it as
+// newline-delimited JSON over USB serial for the flockdar Python tool.
+#include <Arduino.h>
+
+#include "ble_scanner.h"
+#include "config.h"
+#include "protocol.h"
+#include "serial_out.h"
+#include "wifi_scanner.h"
+
+#ifdef FD_ENABLE_GPS
+#include "gps.h"
+#endif
+#ifdef FD_ENABLE_OLED
+#include "display.h"
+#endif
+
+QueueHandle_t g_det_queue = nullptr;
+
+void setup() {
+  serial_out_begin();
+  delay(200);
+
+  g_det_queue = xQueueCreate(64, sizeof(Detection));
+
+#ifdef FD_ENABLE_OLED
+  display_begin();
+#endif
+#ifdef FD_ENABLE_GPS
+  gps_begin();
+#endif
+
+  wifi_scanner_begin();
+  ble_scanner_begin();
+
+  serial_out_info("flockdar-esp32 online");
+}
+
+void loop() {
+  // Drain everything the scanners produced since the last pass.
+  Detection d;
+  while (g_det_queue && xQueueReceive(g_det_queue, &d, 0) == pdTRUE) {
+    serial_out_emit(d);
+  }
+
+  wifi_scanner_loop();  // channel hop
+#ifdef FD_ENABLE_GPS
+  gps_loop();
+#endif
+#ifdef FD_ENABLE_OLED
+  display_loop();
+#endif
+
+  delay(2);
+}
