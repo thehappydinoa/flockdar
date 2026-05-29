@@ -4,8 +4,25 @@ ESP32 firmware for passive Flock Safety camera detection. Companion hardware
 to the `flockdar` Python tool — streams detections as JSON over USB serial
 for real-time ingestion by the TUI.
 
-> **Status: design phase.** No firmware yet — this document captures
-> architecture decisions before code is written. See the [roadmap](../ROADMAP.md).
+> **Status: firmware implemented.** PlatformIO project under `src/` — WiFi
+> promiscuous + BLE scanners, HMAC-signed JSON-over-serial, optional OLED and
+> GPS. See the [roadmap](../ROADMAP.md) for what's next (OTA OUI refresh).
+
+## Quick start
+
+```bash
+uv run esp32/gen_oui_header.py     # sync oui_list.h with signatures.py
+cd esp32
+pio run -e esp32-s3 -t upload      # build + flash an ESP32-S3 dev board
+pio device monitor -b 115200       # watch the JSON stream
+
+# with OLED + GPS wired up (see pin defines in src/config.h):
+pio run -e esp32-s3-full -t upload
+```
+
+Set the HMAC key shared with the Python receiver before field use — edit the
+`-DFD_HMAC_KEY=...` flag in `platformio.ini`. To lock to one channel instead
+of hopping, uncomment `-DFD_FIXED_CHANNEL=6`.
 
 ---
 
@@ -56,6 +73,12 @@ Fields:
 | `mfgrid` | BLE manufacturer ID (decimal) |
 | `ts_ms` | Device milliseconds since boot |
 | `sig` | HMAC-SHA256 truncated to 8 hex chars (excludes `sig` field itself) |
+
+`wifi` and `ble` lines are signed; `gps` and `info` lines are not. The
+signature covers the complete JSON object *before* the `sig` field is inserted.
+To verify, strip the trailing `,"sig":"<8 hex>"` (regex-replace
+`,"sig":"[0-9a-f]{8}"}` → `}`) and recompute `HMAC-SHA256(key, line)[:4]` as
+hex with the shared key.
 
 ---
 
@@ -141,17 +164,20 @@ handles pre-build steps (OUI header generation, HMAC key derivation).
 
 ```
 esp32/
-  platformio.ini        PlatformIO project config
+  platformio.ini        PlatformIO project config (envs: esp32-s3, esp32, esp32-s3-full)
   gen_oui_header.py     Generates oui_list.h from signatures.py
   oui_list.h            Auto-generated — do not edit
   src/
-    main.cpp            Entry point
-    wifi_scanner.cpp    Promiscuous mode + frame parsing
-    ble_scanner.cpp     NimBLE advertisement scanner
-    gps.cpp             GPS NMEA parser
-    signing.cpp         HMAC-SHA256 frame signing
-    display.cpp         OLED driver
-    serial_out.cpp      JSON serialisation + output
+    main.cpp            Entry point — setup scanners, drain the detection queue
+    config.h            Compile-time knobs (HMAC key, channel, peripheral pins)
+    protocol.h          Detection record + shared FreeRTOS queue
+    match.cpp/.h        OUI / mfgrid / BLE-name matching against oui_list.h
+    wifi_scanner.cpp/.h Promiscuous mode + frame parsing + channel hop
+    ble_scanner.cpp/.h  NimBLE passive advertisement scanner
+    gps.cpp/.h          GPS NMEA parser (FD_ENABLE_GPS)
+    signing.cpp/.h      HMAC-SHA256 frame signing
+    display.cpp/.h      SSD1306 OLED status (FD_ENABLE_OLED)
+    serial_out.cpp/.h   JSON serialisation + signing + output
 ```
 
 ---
