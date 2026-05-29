@@ -6,10 +6,10 @@
 
 Connect flockdar to a moving vehicle without waiting for WiGLE to sync.
 
-- **flockdar-esp32 serial reader** — ingest the ESP32's JSON-over-serial stream in real time, converting each detection to a `Hit` via the existing `analyze()` pipeline. The `--serial /dev/ttyUSB0` flag feeds directly into the TUI.
+- ✅ **flockdar-esp32 serial reader** — `serial_import.py` ingests the ESP32's signed JSON-over-serial stream in real time, verifying the HMAC and converting each detection to a `Hit` via `analyze()`. `uv run tui.py --serial /dev/ttyUSB0` feeds directly into the TUI; `.ndjson`/`.jsonl`/`.log` files (incl. SD-card logs) open natively.
+- ✅ **Detection alerts** — live mode rings the bell and posts a notification when a new HIGH-confidence device appears.
 - **flock-back import** — read `flocks.json` (the newline-delimited JSON output from [flock-back](https://github.com/NSM-Barii/flock-back)) as an additional data source alongside WiGLE exports.
 - **Live SQLite watcher** — poll the WiGLE app's SQLite file for new rows every few seconds so the TUI updates as you drive, without manual reloads.
-- **Detection alerts** — desktop notification or configurable sound when a HIGH-confidence device appears during live mode.
 
 ---
 
@@ -28,11 +28,12 @@ Turn the 7,900+ cameras in WiGLE into publishable findings.
 
 Build the actual firmware described in `esp32/README.md`. A standalone passive scanner that feeds directly into the flockdar pipeline.
 
-- **WiFi promiscuous** — OUI-matched probe requests plus the addr1 receiver technique (catches sleeping cameras as destinations of nearby probe responses).
-- **BLE scanner** — name match (`FS Ext Battery`, `Penguin-*`) and manufacturer ID 2504, using the auto-generated `oui_list.h`.
-- **GPS tagging** — u-blox or MTK module; each detection gets lat/lon/accuracy in the JSON output.
-- **OLED display** — live detection count, last MAC seen, current channel.
-- **Signed JSON output** — HMAC-signed lines over USB serial so the Python receiver can reject forged or corrupted frames.
+- ✅ **WiFi promiscuous** — OUI-matched probe requests plus the addr1 receiver technique (catches sleeping cameras as destinations of nearby probe responses).
+- ✅ **BLE scanner** — name match (`FS Ext Battery`, `Penguin-*`) and manufacturer ID 2504, using the auto-generated `oui_list.h`.
+- ✅ **GPS tagging** — u-blox or MTK module; each detection gets lat/lon/accuracy in the JSON output.
+- ✅ **OLED display** — live detection count, last MAC seen, current channel.
+- ✅ **Signed JSON output** — HMAC-signed lines over USB serial so the Python receiver can reject forged or corrupted frames.
+- ✅ **microSD logging** — untethered wardriving to `flock-NNNN.ndjson` on the card; replay through `serial_import` or open directly in the TUI.
 - **OUI refresh** — on-boot fetch of a current `signatures.json` from a configurable URL so the device stays up to date without reflashing.
 
 ---

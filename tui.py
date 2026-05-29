@@ -5,6 +5,8 @@ Flock Safety device detector — Textual TUI.
 Usage:
     uv run tui.py <wigle.sqlite>
     uv run tui.py <WigleWifi_export.csv.gz>
+    uv run tui.py <flock-0001.ndjson>            # ESP32 SD-card log
+    uv run tui.py --serial /dev/ttyUSB0          # live ESP32 capture
 
 Keybindings:
     m  Open selected location in Google Maps
@@ -48,6 +50,7 @@ from textual.widgets import (
 
 import detect
 import enrich as enrich_mod
+import serial_import
 from detect import Cluster, Hit
 from discover import DISCOVERED_SIGNAL, build_discovery, cache_age_seconds, load_cache
 from enrich import ENRICHMENT_SIGNAL_LABELS, build_enrichers, enrich_hits_async, load_config, save_config
@@ -357,12 +360,30 @@ class FlockDetectApp(App):
     all_hits: reactive[list[Hit]] = reactive([], recompose=False)
     total_records: reactive[int] = reactive(0)
 
-    def __init__(self, input_path: Path) -> None:
+    def __init__(
+        self,
+        input_path: Path | None = None,
+        *,
+        serial_port: str | None = None,
+        baud: int = serial_import.DEFAULT_BAUD,
+        hmac_key: str | None = None,
+    ) -> None:
         super().__init__()
         self.input_path = input_path
+        self.serial_port = serial_port
+        self.baud = baud
+        self._hmac_key = serial_import.resolve_key(hmac_key)
         self._display_items: list[Cluster] = []
         self._enriching = False
         self._discovering = False
+        # Live-mode state: dedup-by-MAC map populated as detections arrive.
+        self._live_seen: dict[str, Hit] = {}
+        self._serial_stop = False
+
+    @property
+    def _out_stem(self) -> str:
+        """Filename stem for exports (handles live serial mode)."""
+        return self.input_path.stem if self.input_path else "flock_serial"
 
     # ------------------------------------------------------------------
     # Layout
@@ -378,8 +399,16 @@ class FlockDetectApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        self.sub_title = self.input_path.name
-        self._load_data()
+        if self.serial_port:
+            self.sub_title = f"live: {self.serial_port}"
+            self._load_serial()
+        else:
+            self.sub_title = self.input_path.name
+            self._load_data()
+
+    def on_unmount(self) -> None:
+        # Let the serial reader thread exit (it polls this between reads).
+        self._serial_stop = True
 
     # ------------------------------------------------------------------
     # Data loading
@@ -387,13 +416,15 @@ class FlockDetectApp(App):
 
     @work(thread=True)
     def _load_data(self) -> None:
-        hits, total = detect.run_detection(self.input_path)
+        suffix = self.input_path.suffix.lower()
+        if suffix in (".ndjson", ".jsonl", ".log"):
+            hits, total = serial_import.load_log(self.input_path, self._hmac_key)
+        else:
+            hits, total = detect.run_detection(self.input_path)
         self.call_from_thread(self._on_data_loaded, hits, total)
 
-    def _on_data_loaded(self, hits: list[Hit], total: int) -> None:
-        self.all_hits = hits
-        self.total_records = total
-
+    def _build_table(self) -> None:
+        """Mount the results table + detail panel (shared by file & live modes)."""
         right = self.query_one("#right-col")
         right.remove_children()
         right.mount(DataTable(id="device-table", cursor_type="row"))
@@ -403,7 +434,46 @@ class FlockDetectApp(App):
         table.add_columns("", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Lat", "Lon", "Enriched")
         table.focus()
 
+    def _on_data_loaded(self, hits: list[Hit], total: int) -> None:
+        self.all_hits = hits
+        self.total_records = total
+        self._build_table()
         self._rebuild_table()
+
+    # ------------------------------------------------------------------
+    # Live serial ingestion
+    # ------------------------------------------------------------------
+
+    @work(thread=True)
+    def _load_serial(self) -> None:
+        self.call_from_thread(self._build_table)
+        try:
+            lines = serial_import.serial_lines(
+                self.serial_port, self.baud, should_stop=lambda: self._serial_stop
+            )
+            for hit in serial_import.iter_hits(lines, self._hmac_key):
+                if self._serial_stop:
+                    break
+                self.call_from_thread(self._on_live_hit, hit)
+        except RuntimeError as exc:  # pyserial missing / port error
+            self.call_from_thread(
+                self.notify, str(exc), severity="error", title="Serial"
+            )
+
+    def _on_live_hit(self, hit: Hit) -> None:
+        is_new = serial_import.merge_hit(self._live_seen, hit)
+        self.total_records += 1
+        self.all_hits = sorted(
+            self._live_seen.values(), key=lambda h: (-h.confidence, h.mac)
+        )
+        self._rebuild_table()
+        if is_new and hit.confidence == 3:
+            self.bell()
+            self.notify(
+                f"{hit.device_type} {hit.mac}\n{hit.signals_str()}",
+                title="⚠ HIGH-confidence Flock device",
+                severity="warning",
+            )
 
     # ------------------------------------------------------------------
     # Table population
@@ -529,7 +599,7 @@ class FlockDetectApp(App):
         hits = [h for c in self._display_items for h in c.hits]
         if not hits:
             return
-        out = self.input_path.stem + "_flock_hits.csv"
+        out = self._out_stem + "_flock_hits.csv"
         detect.export_csv(hits, out)
         self.notify(f"Exported {len(hits)} rows → {out}", title="CSV saved")
 
@@ -537,7 +607,7 @@ class FlockDetectApp(App):
         hits = [h for c in self._display_items for h in c.hits]
         if not hits:
             return
-        out = self.input_path.stem + "_flock_hits.kml"
+        out = self._out_stem + "_flock_hits.kml"
         detect.export_kml(hits, out)
         self.notify(f"Exported {len(hits)} placemarks → {out}", title="KML saved")
 
@@ -545,7 +615,7 @@ class FlockDetectApp(App):
         hits = [h for c in self._display_items for h in c.hits]
         if not hits:
             return
-        out = self.input_path.stem + "_flock_hits.geojson"
+        out = self._out_stem + "_flock_hits.geojson"
         detect.export_geojson(hits, out)
         self.notify(f"Exported {len(hits)} features → {out}", title="GeoJSON saved")
 
@@ -567,6 +637,9 @@ class FlockDetectApp(App):
         )
 
     def action_reload(self) -> None:
+        if self.serial_port:
+            self.notify("Live serial mode streams continuously — nothing to reload.")
+            return
         try:
             right = self.query_one("#right-col")
             right.remove_children()
@@ -743,14 +816,39 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description="Detect Flock Safety devices in WiGLE data exports."
     )
-    parser.add_argument("input", help="WiGLE SQLite DB (.sqlite) or CSV export (.csv.gz)")
+    parser.add_argument(
+        "input",
+        nargs="?",
+        help="WiGLE SQLite DB (.sqlite), CSV export (.csv.gz), or "
+        "flockdar-esp32 NDJSON log (.ndjson/.jsonl/.log)",
+    )
+    parser.add_argument(
+        "--serial",
+        metavar="PORT",
+        help="live ingest from a flockdar-esp32 device (e.g. /dev/ttyUSB0, COM3)",
+    )
+    parser.add_argument(
+        "--baud", type=int, default=serial_import.DEFAULT_BAUD, help="serial baud rate"
+    )
+    parser.add_argument(
+        "--key",
+        help=f"HMAC key for live frames (or ${serial_import.ENV_HMAC_KEY}; "
+        "default matches the firmware default)",
+    )
     args = parser.parse_args()
+
+    if args.serial:
+        FlockDetectApp(serial_port=args.serial, baud=args.baud, hmac_key=args.key).run()
+        return
+
+    if not args.input:
+        parser.error("provide an input file or --serial PORT")
 
     path = Path(args.input)
     if not path.exists():
         sys.exit(f"File not found: {path}")
 
-    FlockDetectApp(path).run()
+    FlockDetectApp(path, hmac_key=args.key).run()
 
 
 if __name__ == "__main__":
