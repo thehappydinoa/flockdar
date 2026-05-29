@@ -1,77 +1,81 @@
 # flockdar-esp32
 
-Planned ESP32 firmware module for passive Flock Safety camera detection.
-Companion hardware to the `flockdar` Python tool — outputs JSON over USB
-serial that the Python project can ingest in real time.
+ESP32 firmware for passive Flock Safety camera detection. Companion hardware
+to the `flockdar` Python tool — streams detections as JSON over USB serial
+for real-time ingestion by the TUI.
 
-> **Status: design phase.** No firmware yet — this document captures the
-> architecture decisions before code is written.
+> **Status: design phase.** No firmware yet — this document captures
+> architecture decisions before code is written. See the [roadmap](../ROADMAP.md).
 
 ---
 
 ## What it does
 
-Runs two parallel detection loops on an ESP32:
+Runs two detection loops in parallel on an ESP32:
 
 1. **WiFi promiscuous mode** — captures raw 802.11 management frames and
    checks both `addr2` (transmitter) and `addr1` (receiver) against the
-   Flock OUI list. Catches cameras even while they sleep (the
-   NitekryDPaul `addr1` technique). Also detects wildcard probe requests
-   (SSID tag length = 0) from waking cameras.
+   Flock OUI list. The addr1 check catches cameras even while they sleep —
+   they appear as the *destination* of probe responses from nearby APs.
+   Also catches wildcard probe requests (SSID tag length = 0) from cameras
+   waking to upload.
 
-2. **BLE scanner** — scans BLE advertisements and matches device names
-   (`FS Ext Battery`, `Flock`, `Penguin`) and manufacturer IDs (2504).
+2. **BLE scanner** — scans advertisements and matches Flock device names
+   (`FS Ext Battery`, `Penguin-*`) and manufacturer ID 2504.
 
-Detections are emitted as newline-delimited JSON over USB serial at
-115200 baud. Optional GPS module tags each detection with coordinates.
+Every detection is signed with an HMAC so the Python receiver can reject
+corrupted or spoofed frames. An optional GPS module tags each detection with
+coordinates.
 
 ---
 
 ## Output format
 
-One JSON object per line, compatible with `flockdar` Python import:
+Newline-delimited JSON at 115200 baud. Each line is one event.
 
 ```json
-{"type":"wifi","method":"probe_request","mac":"70:c9:4e:00:00:01","rssi":-72,"channel":6,"oui":"70:c9:4e","ts_ms":1234567890}
-{"type":"wifi","method":"addr1","mac":"d8:f3:bc:00:00:01","rssi":-68,"channel":11,"ts_ms":1234567891}
-{"type":"ble","method":"name_match","mac":"04:0d:84:00:00:01","name":"FS Ext Battery","rssi":-85,"ts_ms":1234567892}
-{"type":"ble","method":"mfgrid","mac":"d4:b2:73:00:00:01","name":"1069698414","mfgrid":2504,"rssi":-90,"ts_ms":1234567893}
-{"type":"gps","lat":40.0016,"lon":-74.0008,"alt":12.3,"accuracy":3.1,"ts_ms":1234567894}
+{"v":1,"type":"wifi","method":"probe_request","mac":"70:c9:4e:00:00:01","rssi":-72,"channel":6,"oui":"70:c9:4e","ts_ms":1234567890,"sig":"a3f2..."}
+{"v":1,"type":"wifi","method":"addr1","mac":"d8:f3:bc:00:00:01","rssi":-68,"channel":11,"ts_ms":1234567891,"sig":"b81c..."}
+{"v":1,"type":"ble","method":"name_match","mac":"04:0d:84:00:00:01","name":"FS Ext Battery","rssi":-85,"ts_ms":1234567892,"sig":"c940..."}
+{"v":1,"type":"ble","method":"mfgrid","mac":"d4:b2:73:00:00:01","name":"1069698414","mfgrid":2504,"rssi":-90,"ts_ms":1234567893,"sig":"d12e..."}
+{"v":1,"type":"gps","lat":40.0016,"lon":-74.0008,"alt":12.3,"accuracy":3.1,"ts_ms":1234567894}
 ```
 
-`method` values:
+Fields:
 
-- `probe_request` — wildcard probe request (SSID len=0) from Flock OUI
-- `addr1` — Flock OUI observed as *receiver* in management frame (asleep camera)
-- `addr2` — Flock OUI observed as *transmitter*
-- `name_match` — BLE advertisement name matched
-- `mfgrid` — BLE manufacturer ID matched
+| Field | Description |
+|---|---|
+| `v` | Protocol version (currently 1) |
+| `type` | `wifi`, `ble`, or `gps` |
+| `method` | `probe_request`, `addr1`, `addr2`, `name_match`, `mfgrid` |
+| `mac` | Lowercase colon-separated MAC address |
+| `rssi` | Signal strength in dBm |
+| `channel` | 802.11 channel (wifi) |
+| `oui` | First 3 octets of MAC |
+| `name` | BLE advertisement name |
+| `mfgrid` | BLE manufacturer ID (decimal) |
+| `ts_ms` | Device milliseconds since boot |
+| `sig` | HMAC-SHA256 truncated to 8 hex chars (excludes `sig` field itself) |
 
 ---
 
 ## Hardware
 
-### Minimum (WiFi + BLE only)
+### Minimum
 
-| Part | Purpose | Notes |
-|---|---|---|
-| ESP32-WROOM-32 or ESP32-S3 | Main MCU | Dual-core; S3 preferred for RAM |
-| USB-C breakout or dev board | Power + serial | Any ESP32 dev board works |
+| Part | Notes |
+|---|---|
+| ESP32-S3 dev board | S3 preferred — more RAM, better BLE throughput |
+| USB-C cable | Power + serial to host |
 
-### Recommended additions
+### Recommended
 
 | Part | Purpose |
 |---|---|
-| SSD1306 0.96" OLED (I²C) | Live detection count / MAC display |
-| u-blox NEO-6M or MTK3339 | GPS for location tagging |
-| 18650 LiPo + TP4056 | Portable operation |
-| External 2.4 GHz antenna | Improves detection range |
-
-Compatible hardware variants from FlockSquawk (inspiration):
-
-- M5StickC Plus2 (built-in display)
-- M5Stack FIRE (built-in speaker + display)
-- Any ESP32 dev board + I²C OLED
+| SSD1306 0.96" OLED (I²C) | Live detection count, last MAC, channel |
+| u-blox NEO-6M or MTK3339 GPS | Location tagging per detection |
+| 18650 LiPo + TP4056 | Portable operation without USB host |
+| External 2.4 GHz antenna | +3–6 dB range improvement |
 
 ---
 
@@ -81,67 +85,80 @@ Compatible hardware variants from FlockSquawk (inspiration):
 
 ```
 For each 802.11 management frame:
-  1. Skip if addr1 is multicast (byte[0] bit 0 set)
+  1. Skip if addr1 is multicast  (byte[0] bit 0 set)
   2. Skip if addr1 is locally administered (byte[0] bit 1 set)
-  3. Check addr2 (transmitter) against OUI list → emit addr2 detection
-  4. Check addr1 (receiver) against OUI list  → emit addr1 detection
-  5. If frame is Probe Request AND SSID tag length == 0 → emit probe_request
+  3. Check addr2 (transmitter) against OUI list  → emit addr2 detection
+  4. Check addr1 (receiver)    against OUI list  → emit addr1 detection
+  5. If Probe Request AND SSID tag length == 0   → emit probe_request
 ```
 
-Channel strategy: hop channels 1→6→11 (2.4 GHz primary) with 800 ms
-dwell. Optionally lock to a single channel with `FD_FIXED_CHANNEL`.
+Channel strategy: hop 1 → 6 → 11 (2.4 GHz primary) with 800 ms dwell.
+Lock to a single channel with `FD_FIXED_CHANNEL` at compile time.
 
 ### BLE
 
-Standard NimBLE advertisement scan. On each advertisement:
+Standard NimBLE passive scan. On each advertisement:
 
-1. Check device name against `BLE_NAME_PATTERNS`
-2. Check manufacturer ID against `BLE_MFGRID_LIST`
-3. Emit detection JSON
+1. Match device name against `BLE_NAME_PATTERNS` from `oui_list.h`
+2. Match manufacturer ID against `FLOCK_MFGRIDS` from `oui_list.h`
+3. Emit signed detection JSON
+
+### OUI list
+
+`oui_list.h` is auto-generated from `signatures.py` by running:
+
+```bash
+uv run esp32/gen_oui_header.py
+```
+
+Re-run this whenever `signatures.py` is updated so the firmware and Python
+tool stay in sync. The device can also fetch a fresh `signatures.json` from
+a configurable URL at boot time (OTA OUI update, v0.4 feature).
 
 ---
 
 ## Integration with flockdar Python
 
 ```bash
-# Live ingest from serial port (planned feature)
-uv run tui.py --serial /dev/ttyUSB0
+# Live TUI — reads from the device as you drive
+uv run tui.py --serial /dev/ttyUSB0          # Linux / macOS
+uv run tui.py --serial COM3                  # Windows
 
-# Or pipe to import tool
-python -m flockdar.serial_import /dev/ttyUSB0 output.sqlite
+# Headless logger
+uv run python -m flockdar.serial_import /dev/ttyUSB0 output.sqlite
 ```
 
-The serial reader will convert incoming JSON lines into `Hit` objects
-using the same `detect.analyze()` pipeline, so all existing TUI
-features (clustering, enrichment, OSM contribution) work on live data.
+The serial reader converts each JSON line to a `Hit` via the existing
+`detect.analyze()` pipeline. All TUI features — clustering, enrichment,
+OSM contribution, GeoJSON export — work identically on live and archived data.
 
 ---
 
-## OUI list
+## Build system
 
-The firmware embeds a compiled OUI lookup table derived from
-`signatures.py:FLOCK_CHIP_OUIS`. A build script (`esp32/gen_oui_header.py`)
-will regenerate `oui_list.h` from the canonical Python source so they
-stay in sync.
+PlatformIO with the `espressif32` platform. A `uv`-based Python toolchain
+handles pre-build steps (OUI header generation, HMAC key derivation).
+
+```
+esp32/
+  platformio.ini        PlatformIO project config
+  gen_oui_header.py     Generates oui_list.h from signatures.py
+  oui_list.h            Auto-generated — do not edit
+  src/
+    main.cpp            Entry point
+    wifi_scanner.cpp    Promiscuous mode + frame parsing
+    ble_scanner.cpp     NimBLE advertisement scanner
+    gps.cpp             GPS NMEA parser
+    signing.cpp         HMAC-SHA256 frame signing
+    display.cpp         OLED driver
+    serial_out.cpp      JSON serialisation + output
+```
 
 ---
 
-## Differences from FlockSquawk
+## Research references
 
-FlockSquawk is the primary inspiration. flockdar-esp32 will differ by:
-
-- JSON output format designed to be consumed by `flockdar` Python tool
-- `addr1` matching enabled by default (NitekryDPaul technique)
-- GPS integration built into the output protocol
-- Manufacturer ID (mfgrid) BLE matching in addition to name matching
-- Build system uses PlatformIO (same as FlockSquawk) with a uv-based
-  Python toolchain for OUI header generation
-
----
-
-## References
-
-- [FlockSquawk](https://github.com/f1yaw4y/FlockSquawk) — primary inspiration
-- [flock-you](https://github.com/DeflockJoplin/flock-you) — OUI list and addr1 technique
-- [flock-back](https://github.com/NSM-Barii/flock-back) — BLE + WiFi probe approach
-- [NitekryDPaul WiFi OUIs](https://github.com/DeflockJoplin/flock-you/blob/main/datasets/NitekryDPaul_wifi_ouis.md)
+- NitekryDPaul — addr1 receiver technique and WiFi OUI list
+  ([flock-you dataset](https://github.com/DeflockJoplin/flock-you/blob/main/datasets/NitekryDPaul_wifi_ouis.md))
+- NSM-Barii — BLE name patterns, WiFi probe-request approach
+  ([flock-back](https://github.com/NSM-Barii/flock-back))
