@@ -13,8 +13,8 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent.parent))
-import signatures as sig
+sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+from flockdar import signatures as sig
 
 OUTPUT = Path(__file__).parent / "oui_list.h"
 

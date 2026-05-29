@@ -5,8 +5,8 @@ from __future__ import annotations
 import hmac
 from hashlib import sha256
 
-import detect
-import serial_import as si
+from flockdar import detect
+from flockdar import serial_import as si
 
 KEY = b"test-key"
 

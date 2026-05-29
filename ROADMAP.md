@@ -6,7 +6,7 @@
 
 Connect flockdar to a moving vehicle without waiting for WiGLE to sync.
 
-- ✅ **flockdar-esp32 serial reader** — `serial_import.py` ingests the ESP32's signed JSON-over-serial stream in real time, verifying the HMAC and converting each detection to a `Hit` via `analyze()`. `uv run tui.py --serial /dev/ttyUSB0` feeds directly into the TUI; `.ndjson`/`.jsonl`/`.log` files (incl. SD-card logs) open natively.
+- ✅ **flockdar-esp32 serial reader** — `serial_import.py` ingests the ESP32's signed JSON-over-serial stream in real time, verifying the HMAC and converting each detection to a `Hit` via `analyze()`. `uv run flockdar --serial /dev/ttyUSB0` feeds directly into the TUI; `.ndjson`/`.jsonl`/`.log` files (incl. SD-card logs) open natively.
 - ✅ **Detection alerts** — live mode rings the bell and posts a notification when a new HIGH-confidence device appears.
 - **flock-back import** — read `flocks.json` (the newline-delimited JSON output from [flock-back](https://github.com/NSM-Barii/flock-back)) as an additional data source alongside WiGLE exports.
 - **Live SQLite watcher** — poll the WiGLE app's SQLite file for new rows every few seconds so the TUI updates as you drive, without manual reloads.
@@ -54,5 +54,5 @@ End-to-end: ESP32 on the dashboard → USB → flockdar → OSM.
 
 - **Route avoidance** — given a start and end point, suggest the route that minimises known camera encounters using the ALPRWatch KMZ avoidance data.
 - **Nightly discovery** — scheduled mode that refreshes the WiGLE cache overnight and surfaces newly-logged cameras not yet in OSM.
-- **Installable package** — `uv tool install flockdar` so users don't need to clone the repo.
+- ✅ **Installable package** — src-layout `flockdar` package builds to a wheel with hatchling (`uv build`); `flockdar` / `flockdar-ingest` console scripts. Publish to PyPI so `uv tool install flockdar` / `pipx install flockdar` works without cloning.
 - **Web dashboard** — optional `--serve 8080` that exposes a read-only Leaflet map of local detections for a second screen while driving.

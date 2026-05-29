@@ -3,10 +3,10 @@
 Flock Safety device detector — Textual TUI.
 
 Usage:
-    uv run tui.py <wigle.sqlite>
-    uv run tui.py <WigleWifi_export.csv.gz>
-    uv run tui.py <flock-0001.ndjson>            # ESP32 SD-card log
-    uv run tui.py --serial /dev/ttyUSB0          # live ESP32 capture
+    uv run flockdar <wigle.sqlite>
+    uv run flockdar <WigleWifi_export.csv.gz>
+    uv run flockdar <flock-0001.ndjson>          # ESP32 SD-card log
+    uv run flockdar --serial /dev/ttyUSB0        # live ESP32 capture
 
 Keybindings:
     m  Open selected location in Google Maps
@@ -48,12 +48,12 @@ from textual.widgets import (
     Static,
 )
 
-import detect
-import enrich as enrich_mod
-import serial_import
-from detect import Cluster, Hit
-from discover import DISCOVERED_SIGNAL, build_discovery, cache_age_seconds, load_cache
-from enrich import ENRICHMENT_SIGNAL_LABELS, build_enrichers, enrich_hits_async, load_config, save_config
+from . import detect
+from . import enrich as enrich_mod
+from . import serial_import
+from .detect import Cluster, Hit
+from .discover import DISCOVERED_SIGNAL, build_discovery, cache_age_seconds, load_cache
+from .enrich import ENRICHMENT_SIGNAL_LABELS, build_enrichers, enrich_hits_async, load_config, save_config
 
 # ---------------------------------------------------------------------------
 # Helpers

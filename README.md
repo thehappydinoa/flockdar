@@ -32,16 +32,21 @@ per-OS setup for every tool (Python, ESP32 toolchain, serial drivers) is in
 
 ```bash
 uv sync
-uv run tui.py wigle_backup.sqlite
-uv run tui.py WigleWifi_export.csv.gz
-# or via installed script:
-flockdar wigle_backup.sqlite
+uv run flockdar wigle_backup.sqlite
+uv run flockdar WigleWifi_export.csv.gz
 
 # live capture from an ESP32 scanner (see SETUP.md):
-uv run tui.py --serial /dev/ttyUSB0          # macOS / Linux
-uv run tui.py --serial COM3                  # Windows
+uv run flockdar --serial /dev/ttyUSB0        # macOS / Linux
+uv run flockdar --serial COM3                # Windows
 # replay an SD-card log from the firmware:
-uv run tui.py flock-0001.ndjson
+uv run flockdar flock-0001.ndjson
+```
+
+Or install from PyPI and run the `flockdar` command directly:
+
+```bash
+pipx install flockdar          # or: uv tool install flockdar
+flockdar wigle_backup.sqlite
 ```
 
 ### TUI keybindings
@@ -80,7 +85,7 @@ Press `n` to cross-reference all visible hits against external databases. Result
 ```bash
 export WIGLE_API_NAME=your_api_name
 export WIGLE_API_TOKEN=your_api_token
-uv run tui.py wigle_backup.sqlite
+uv run flockdar wigle_backup.sqlite
 ```
 
 Credentials are stored in `~/.config/flock-wigle/config.json` (Unix: `chmod 600`).
@@ -138,18 +143,24 @@ Raven firmware exposes a readable GATT tree without authentication when within B
 ## Files
 
 ```
-tui.py           Textual TUI — main entry point (file or --serial live mode)
-detect.py        Detection logic (no UI dependency, importable)
-enrich.py        Async enrichers: OSM/DeFlock, ALPRWatch, WiGLE API
-discover.py      WiGLE-based discovery of unseen Flock cameras (cached)
-serial_import.py ESP32 serial / NDJSON ingest — verify HMAC, map to Hits
-signatures.py    All OUI prefixes, BLE UUIDs, SSID/name patterns
-esp32/           ESP32 companion firmware (PlatformIO) + OUI header generator
-tests/           pytest suite (asyncio_mode=auto)
-SETUP.md         Per-OS setup for every tool (macOS / Linux / Windows)
-pyproject.toml   uv project — dependencies and scripts
-CLAUDE.md        Architecture notes for AI coding assistants
+src/flockdar/
+  tui.py           Textual TUI — main entry point (file or --serial live mode)
+  detect.py        Detection logic (no UI dependency, importable)
+  enrich.py        Async enrichers: OSM/DeFlock, ALPRWatch, WiGLE API
+  discover.py      WiGLE-based discovery of unseen Flock cameras (cached)
+  serial_import.py ESP32 serial / NDJSON ingest — verify HMAC, map to Hits
+  signatures.py    All OUI prefixes, BLE UUIDs, SSID/name patterns
+  __main__.py      `python -m flockdar` entry point
+esp32/             ESP32 companion firmware (PlatformIO) + OUI header generator
+tests/             pytest suite (asyncio_mode=auto)
+SETUP.md           Per-OS setup for every tool (macOS / Linux / Windows)
+pyproject.toml     uv / hatchling project — dependencies, scripts, packaging
+CLAUDE.md          Architecture notes for AI coding assistants
 ```
+
+Standard src-layout Python package (`flockdar`), built with
+[hatchling](https://hatch.pypa.io/). Console scripts: `flockdar` (TUI) and
+`flockdar-ingest` (headless serial/NDJSON ingest).
 
 ## ESP32 companion
 
@@ -159,10 +170,10 @@ time and streams them to this tool:
 - **WiFi promiscuous mode** — OUI-matched `addr2`/`addr1` (catches sleeping
   cameras as the receiver) + wildcard probe requests
 - **BLE scanning** — `FS Ext Battery`, manufacturer ID 2504, etc.
-- **Signed JSON over USB serial** — HMAC-verified by `serial_import.py` and fed
-  into the live TUI via `uv run tui.py --serial /dev/ttyUSB0`
+- **Signed JSON over USB serial** — HMAC-verified by `serial_import` and fed
+  into the live TUI via `uv run flockdar --serial /dev/ttyUSB0`
 - **microSD logging** — untethered wardriving to `flock-NNNN.ndjson`, replayed
-  with `uv run tui.py flock-0001.ndjson`
+  with `uv run flockdar flock-0001.ndjson`
 
 See [`esp32/README.md`](esp32/README.md) for hardware, output format, and build
 envs, and [SETUP.md](SETUP.md) for the toolchain install. `gen_oui_header.py`
@@ -175,10 +186,10 @@ generates the C signature header from `signatures.py` so the lists stay in sync.
 ```python
 from pathlib import Path
 import asyncio
-import detect
-from enrich import build_enrichers, enrich_hits_async
+from flockdar import run_detection
+from flockdar.enrich import build_enrichers, enrich_hits_async
 
-hits, total = detect.run_detection(Path("wigle_backup.sqlite"))
+hits, total = run_detection(Path("wigle_backup.sqlite"))
 enrichers = build_enrichers()                    # OSM + ALPRWatch; add WiGLE creds if wanted
 asyncio.run(enrich_hits_async(hits, enrichers))
 

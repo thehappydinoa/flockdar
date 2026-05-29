@@ -1,10 +1,15 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
 [project]
 name = "flockdar"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Passive RF detection of Flock Safety ALPR cameras from WiGLE wardriving data"
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.11"
+authors = [{ name = "thehappydinoa", email = "thehappydinoa@gmail.com" }]
 keywords = ["flock-safety", "alpr", "wigle", "surveillance", "privacy", "wardriving"]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -24,7 +29,8 @@ dependencies = [
 ]
 
 [project.scripts]
-flockdar = "tui:main"
+flockdar = "flockdar.tui:main"
+flockdar-ingest = "flockdar.serial_import:main"
 
 [project.urls]
 "Source" = "https://github.com/thehappydinoa/flockdar"
@@ -35,6 +41,15 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
 ]
+
+[tool.hatch.version]
+path = "src/flockdar/__init__.py"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flockdar"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/flockdar", "tests", "esp32", "README.md", "SETUP.md", "ROADMAP.md", "LICENSE"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

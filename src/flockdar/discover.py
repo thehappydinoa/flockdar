@@ -23,9 +23,9 @@ from typing import Any, Callable
 
 import httpx
 
-from detect import Hit, analyze
-from enrich import _cache_dir, _make_client, load_config
-import signatures as sig
+from .detect import Hit, analyze
+from .enrich import _cache_dir, _make_client, load_config
+from . import signatures as sig
 
 # ---------------------------------------------------------------------------
 # Constants

@@ -2,18 +2,21 @@
 Ingest the flockdar-esp32 JSON stream — from a live serial port or a saved
 NDJSON log (e.g. the firmware's SD-card file) — into `detect.Hit` objects.
 
-No UI dependencies; importable from tui.py or run standalone:
+No UI dependencies; importable from the TUI or run standalone:
 
     # live serial -> human-readable summary
-    uv run python -m serial_import /dev/ttyUSB0
-    uv run python -m serial_import COM3                 # Windows
+    uv run flockdar-ingest /dev/ttyUSB0
+    uv run flockdar-ingest COM3                         # Windows
 
     # live serial -> WiGLE-format SQLite the TUI can open (Ctrl-C to stop)
-    uv run python -m serial_import /dev/ttyUSB0 out.sqlite
-    uv run tui.py out.sqlite
+    uv run flockdar-ingest /dev/ttyUSB0 out.sqlite
+    uv run flockdar out.sqlite
 
     # replay an SD-card log
-    uv run python -m serial_import flock-0001.ndjson out.sqlite
+    uv run flockdar-ingest flock-0001.ndjson out.sqlite
+
+(`flockdar-ingest` is the console script; `python -m flockdar.serial_import`
+works too.)
 
 The firmware signs `wifi`/`ble` lines with HMAC-SHA256 (see esp32/README.md);
 this module verifies them with the shared key before trusting a detection.
@@ -35,7 +38,7 @@ from hashlib import sha256
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator
 
-import detect
+from . import detect
 
 DEFAULT_BAUD = 115200
 DEFAULT_HMAC_KEY = "flockdar-dev-key"  # matches the firmware build-flag default

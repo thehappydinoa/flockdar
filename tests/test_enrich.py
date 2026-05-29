@@ -12,8 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import httpx
 import pytest
 
-import enrich as enrich_mod
-from enrich import (
+from flockdar import enrich as enrich_mod
+from flockdar.enrich import (
     ALPRWatchEnricher,
     OverpassEnricher,
     WiGLEEnricher,
