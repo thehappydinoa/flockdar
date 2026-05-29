@@ -97,8 +97,14 @@ hex with the shared key.
 |---|---|
 | SSD1306 0.96" OLED (I²C) | Live detection count, last MAC, channel |
 | u-blox NEO-6M or MTK3339 GPS | Location tagging per detection |
+| microSD module (SPI) | Untethered NDJSON logging |
 | 18650 LiPo + TP4056 | Portable operation without USB host |
 | External 2.4 GHz antenna | +3–6 dB range improvement |
+
+**Pin assignments, wiring, electrical, and RF detail:** see
+[`HARDWARE.md`](HARDWARE.md). All peripherals are 3.3 V. GPIO maps are validated
+against each chip's reserved pins by `pin_spec.py` and generated into
+`src/pins.h` — never hand-edit pins.
 
 ---
 
@@ -181,17 +187,26 @@ no conversion step.
 
 ## Build system
 
-PlatformIO with the `espressif32` platform. A `uv`-based Python toolchain
-handles pre-build steps (OUI header generation, HMAC key derivation).
+PlatformIO with the `espressif32` platform. Two `uv`-based generators keep the
+firmware in sync with the Python sources and validate the hardware design:
+
+```bash
+uv run esp32/gen_oui_header.py     # signatures.py -> oui_list.h (OUIs/names/mfgrids)
+uv run esp32/pin_spec.py validate  # check GPIO maps against each chip's rules
+uv run esp32/pin_spec.py gen       # write the validated src/pins.h
+```
 
 ```
 esp32/
   platformio.ini        PlatformIO config (envs: esp32-s3, esp32, esp32-s3-sd, esp32-s3-full)
+  HARDWARE.md           Pin spec, electrical, RF design document
   gen_oui_header.py     Generates oui_list.h from signatures.py
   oui_list.h            Auto-generated — do not edit
+  pin_spec.py           Authoritative pin map + validator (source of truth for pins.h)
   src/
     main.cpp            Entry point — setup scanners, drain the detection queue
-    config.h            Compile-time knobs (HMAC key, channel, peripheral pins)
+    config.h            Compile-time behaviour knobs (HMAC key, channel, bauds)
+    pins.h              Auto-generated, board-conditional GPIO map — do not edit
     protocol.h          Detection record + shared FreeRTOS queue
     match.cpp/.h        OUI / mfgrid / BLE-name matching against oui_list.h
     wifi_scanner.cpp/.h Promiscuous mode + frame parsing + channel hop
@@ -202,6 +217,9 @@ esp32/
     display.cpp/.h      SSD1306 OLED status (FD_ENABLE_OLED)
     serial_out.cpp/.h   JSON serialisation + signing + output (serial + SD)
 ```
+
+`tests/test_pins.py` re-runs validation and checks `src/pins.h` is in sync, so
+a bad pin or a stale header fails CI.
 
 ---
 

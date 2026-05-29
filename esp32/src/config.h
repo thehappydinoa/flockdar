@@ -6,6 +6,11 @@
 
 #include <stdint.h>
 
+// Validated, board-conditional GPIO assignments (generated from
+// esp32/pin_spec.py). Provides FD_OLED_SDA/SCL, FD_SD_CS/SCK/MISO/MOSI,
+// FD_GPS_RX_PIN/TX_PIN, FD_GPS_UART. See esp32/HARDWARE.md.
+#include "pins.h"
+
 // --- Protocol / serial -----------------------------------------------------
 #define FD_PROTO_VERSION 1
 #define FD_SERIAL_BAUD 115200
@@ -42,29 +47,15 @@
 #endif
 #endif  // FD_ENABLE_OLED
 
+// microSD: pins come from pins.h (FD_SD_CS/SCK/MISO/MOSI). Behaviour only here.
 #ifdef FD_ENABLE_SD
-#ifndef FD_SD_CS
-#define FD_SD_CS 5  // microSD SPI chip-select pin
-#endif
-// Define all three to use a non-default SPI bus for the card:
-// #define FD_SD_SCK 18
-// #define FD_SD_MISO 19
-// #define FD_SD_MOSI 23
 #ifndef FD_SD_FLUSH_MS
 #define FD_SD_FLUSH_MS 3000  // flush the log to card at most this often
 #endif
 #endif  // FD_ENABLE_SD
 
+// GPS: pins/UART come from pins.h (FD_GPS_RX_PIN/TX_PIN, FD_GPS_UART).
 #ifdef FD_ENABLE_GPS
-#ifndef FD_GPS_UART
-#define FD_GPS_UART 1
-#endif
-#ifndef FD_GPS_RX_PIN
-#define FD_GPS_RX_PIN 16
-#endif
-#ifndef FD_GPS_TX_PIN
-#define FD_GPS_TX_PIN 17
-#endif
 #ifndef FD_GPS_BAUD
 #define FD_GPS_BAUD 9600
 #endif
