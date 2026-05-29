@@ -13,9 +13,8 @@ static uint32_t s_last_flush = 0;
 static bool s_dirty = false;
 
 void sdlog_begin() {
-#if defined(FD_SD_SCK) && defined(FD_SD_MISO) && defined(FD_SD_MOSI)
+  // Validated, board-specific SPI pins from pins.h (via config.h).
   SPI.begin(FD_SD_SCK, FD_SD_MISO, FD_SD_MOSI, FD_SD_CS);
-#endif
   if (!SD.begin(FD_SD_CS)) {
     s_ok = false;
     return;
