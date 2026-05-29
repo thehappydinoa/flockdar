@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-import signatures as sig
-from detect import Hit, Cluster, analyze, cluster_hits, single_clusters
+from flockdar import signatures as sig
+from flockdar.detect import Hit, Cluster, analyze, cluster_hits, single_clusters
 from tests.conftest import make_hit
 
 

@@ -8,7 +8,7 @@ from pathlib import Path
 
 import pytest
 
-from detect import Hit
+from flockdar.detect import Hit
 
 
 # ---------------------------------------------------------------------------

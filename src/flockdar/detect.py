@@ -14,7 +14,7 @@ from math import cos, radians, sqrt
 from pathlib import Path
 from typing import Any, Iterator
 
-import signatures as sig
+from . import signatures as sig
 
 # ---------------------------------------------------------------------------
 # Data model
