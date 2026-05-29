@@ -18,7 +18,7 @@ static char s_last_kind[8] = "--";
 static uint32_t s_last_draw = 0;
 
 void display_begin() {
-  Wire.begin();
+  Wire.begin(FD_OLED_SDA, FD_OLED_SCL);
   s_ok = s_oled.begin(SSD1306_SWITCHCAPVCC, FD_OLED_ADDR);
   if (!s_ok) return;
   s_oled.clearDisplay();
