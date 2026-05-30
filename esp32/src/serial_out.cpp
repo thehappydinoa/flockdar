@@ -19,6 +19,37 @@ static void mac_to_str(const uint8_t mac[6], char out[18]) {
            mac[3], mac[4], mac[5]);
 }
 
+// Escape a (BLE-advertised, attacker-controllable) string for embedding in a
+// JSON string literal. Produces pure-ASCII output so the result is always
+// valid JSON regardless of quotes, backslashes, control chars, or non-UTF-8
+// bytes in the source. Output is truncated to fit `outsz` (incl. NUL).
+static void json_escape(const char *in, char *out, size_t outsz) {
+  size_t o = 0;
+  char u[7];
+  for (size_t i = 0; in[i] != '\0'; i++) {
+    unsigned char c = (unsigned char)in[i];
+    const char *esc;
+    if (c == '"')       esc = "\\\"";
+    else if (c == '\\') esc = "\\\\";
+    else if (c == '\n') esc = "\\n";
+    else if (c == '\r') esc = "\\r";
+    else if (c == '\t') esc = "\\t";
+    else if (c < 0x20 || c >= 0x7f) {
+      snprintf(u, sizeof(u), "\\u%04x", c);
+      esc = u;
+    } else {
+      if (o + 1 >= outsz) break;
+      out[o++] = (char)c;
+      continue;
+    }
+    size_t len = strlen(esc);
+    if (o + len >= outsz) break;
+    memcpy(out + o, esc, len);
+    o += len;
+  }
+  out[o] = '\0';
+}
+
 // Single output path for every JSON line: USB serial and (if built) the SD
 // card log. The line must NOT already contain a trailing newline.
 static void output_line(const char *line) {
@@ -40,7 +71,7 @@ void serial_out_info(const char *msg) {
 }
 
 void serial_out_emit(const Detection &d) {
-  char body[256];
+  char body[384];  // headroom for a fully-escaped name field
   int n = 0;
 
   if (d.kind == DET_GPS) {
@@ -66,7 +97,9 @@ void serial_out_emit(const Detection &d) {
                   d.mac[0], d.mac[1], d.mac[2]);
   }
   if (d.has_name) {
-    n += snprintf(body + n, sizeof(body) - n, ",\"name\":\"%s\"", d.name);
+    char esc[200];  // worst case: 31 src chars * 6 (\u00xx) + NUL
+    json_escape(d.name, esc, sizeof(esc));
+    n += snprintf(body + n, sizeof(body) - n, ",\"name\":\"%s\"", esc);
   }
   if (d.has_mfgrid) {
     n += snprintf(body + n, sizeof(body) - n, ",\"mfgrid\":%u", d.mfgrid);
@@ -86,7 +119,7 @@ void serial_out_emit(const Detection &d) {
   char sig[9];
   hmac_sig(body, (size_t)n, sig);
 
-  char line[288];
+  char line[416];
   // %.*s copies body without its trailing '}'.
   snprintf(line, sizeof(line), "%.*s,\"sig\":\"%s\"}", n - 1, body, sig);
   output_line(line);
