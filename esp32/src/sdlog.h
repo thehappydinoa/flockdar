@@ -3,7 +3,7 @@
 // Writes the exact same newline-delimited JSON the firmware streams over
 // serial to a file on an SPI microSD card, so the device can wardrive
 // untethered. Replay the log later with:
-//   uv run python -m serial_import flock-0001.ndjson out.sqlite
+//   uv run flockdar-ingest flock-0001.ndjson out.sqlite
 #pragma once
 
 #include "config.h"

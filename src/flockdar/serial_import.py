@@ -241,7 +241,10 @@ def serial_lines(
             "pyserial is required for --serial; install with `uv sync`"
         ) from exc
 
-    ser = serial.Serial(port, baud, timeout=1)
+    try:
+        ser = serial.Serial(port, baud, timeout=1)
+    except serial.SerialException as exc:  # bad port, permission denied, busy
+        raise RuntimeError(f"cannot open serial port {port}: {exc}") from exc
     try:
         while True:
             if should_stop and should_stop():
