@@ -1,5 +1,7 @@
 # flockdar
 
+[![PyPI](https://img.shields.io/pypi/v/flockdar)](https://pypi.org/project/flockdar/)
+
 Passive RF detection of Flock Safety ALPR (automatic license plate reader) cameras from [WiGLE](https://wigle.net) wardriving data.
 
 Works with both the **WiGLE Android app SQLite backup** and **WiGLE CSV exports** (`.csv.gz`). All detection runs fully offline. Optional enrichment queries cross-reference hits against [DeFlock/OSM](https://deflock.org), [ALPRWatch](https://alprwatch.org), and the [WiGLE API](https://api.wigle.net).
@@ -26,11 +28,28 @@ Works with both the **WiGLE Android app SQLite backup** and **WiGLE CSV exports*
 
 ## Quick start
 
-Requires [uv](https://docs.astral.sh/uv/getting-started/installation/). Full
-per-OS setup for every tool (Python, ESP32 toolchain, serial drivers) is in
+**Install from PyPI:**
+
+```bash
+pip install flockdar
+flockdar wigle_backup.sqlite
+```
+
+Or as an isolated tool via [uv](https://docs.astral.sh/uv/):
+
+```bash
+uv tool install flockdar
+flockdar wigle_backup.sqlite
+```
+
+**From source:**
+
+Full per-OS setup for every tool (Python, ESP32 toolchain, serial drivers) is in
 [SETUP.md](SETUP.md).
 
 ```bash
+git clone https://github.com/thehappydinoa/flockdar
+cd flockdar
 uv sync
 uv run flockdar wigle_backup.sqlite
 uv run flockdar WigleWifi_export.csv.gz
@@ -40,13 +59,6 @@ uv run flockdar --serial /dev/ttyUSB0        # macOS / Linux
 uv run flockdar --serial COM3                # Windows
 # replay an SD-card log from the firmware:
 uv run flockdar flock-0001.ndjson
-```
-
-Or install from PyPI and run the `flockdar` command directly:
-
-```bash
-pipx install flockdar          # or: uv tool install flockdar
-flockdar wigle_backup.sqlite
 ```
 
 ### TUI keybindings
