@@ -128,9 +128,29 @@ Tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTran
 
 `detect.py` runs every record through `signatures.py` and appends `(label, detail)` signal tuples to each `Hit`. Confidence is derived from which labels are present — no stored score:
 
-- **HIGH (3)**: `FLOCK_DIRECT_OUI`, `RAVEN_UUID_HIGH`, `FLOCKNET_SSID`, `FLOCK_CAMERA_SSID`, `PENGUIN_BLE_SSID`
-- **MEDIUM (2)**: `FLOCK_CAMERA_SSID_PATTERN`, `BLE_NAME`, `BACKHAUL_OUI_HIDDEN`, `FLOCK_WIFI_FP`, `FLOCK_MFGRID`
-- **LOW (1)**: `CHIP_OUI`, `SSID_PATTERN`, `RAVEN_UUID_OLD`, `SURVEILLANCE_OUI`
+```mermaid
+graph LR
+    subgraph HIGH["HIGH — confidence 3"]
+        A[FLOCK_DIRECT_OUI]
+        B[RAVEN_UUID_HIGH]
+        C[FLOCKNET_SSID]
+        D[FLOCK_CAMERA_SSID]
+        E[PENGUIN_BLE_SSID]
+    end
+    subgraph MED["MEDIUM — confidence 2"]
+        F[FLOCK_CAMERA_SSID_PATTERN]
+        G[BLE_NAME]
+        H[BACKHAUL_OUI_HIDDEN]
+        I[FLOCK_WIFI_FP]
+        J[FLOCK_MFGRID]
+    end
+    subgraph LOW["LOW — confidence 1"]
+        K[CHIP_OUI]
+        L[SSID_PATTERN]
+        M[RAVEN_UUID_OLD]
+        N[SURVEILLANCE_OUI]
+    end
+```
 
 `Cluster` groups nearby hits (union-find, 75 m radius) and reports the highest confidence across members.
 
@@ -153,6 +173,23 @@ Raven firmware exposes a readable GATT tree without authentication when within B
 ---
 
 ## Files
+
+```mermaid
+graph LR
+    SIG[signatures.py]
+    DET[detect.py]
+    ENR[enrich.py]
+    DIS[discover.py]
+    SER[serial_import.py]
+    TUI[tui.py]
+
+    SIG --> DET
+    DET --> TUI
+    DET --> ENR
+    ENR --> TUI
+    DIS --> TUI
+    SER --> TUI
+```
 
 ```
 src/flockdar/

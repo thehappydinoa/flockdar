@@ -34,6 +34,8 @@ Within it, strict layering — UI never touches signatures directly:
 signatures.py  →  detect.py  →  tui.py
 ```
 
+> **README diagram** — `README.md` has a Mermaid module-dependency diagram in the **Files** section. Update it whenever a module is added, removed, or its dependency edges change.
+
 Intra-package imports are relative (`from . import detect`); tests and external
 code use absolute imports (`from flockdar import detect`). Console scripts:
 `flockdar` → `flockdar.tui:main`, `flockdar-ingest` → `flockdar.serial_import:main`.
@@ -69,6 +71,8 @@ The SQLite `network` table has a single-char `type` field: `W`=WiFi, `E`=BLE, `B
 - **3 HIGH**: `FLOCK_DIRECT_OUI`, `RAVEN_UUID_HIGH`, `FLOCKNET_SSID`, `FLOCK_CAMERA_SSID`, `PENGUIN_BLE_SSID`
 - **2 MEDIUM**: `FLOCK_CAMERA_SSID_PATTERN`, `BLE_NAME`, `BACKHAUL_OUI_HIDDEN`, `FLOCK_WIFI_FP`, `FLOCK_MFGRID`
 - **1 LOW**: `CHIP_OUI`, `SSID_PATTERN`, `RAVEN_UUID_OLD`, `SURVEILLANCE_OUI`
+
+> **README diagram** — `README.md` has a Mermaid confidence-tier diagram in the **How detection works** section. Update it whenever a signal label is added, removed, or moved to a different tier.
 
 Key signal notes:
 - **`FLOCK_CAMERA_SSID`** — SSID matches `Flock-XXXXXX`/`FLOCK-XXXXXX` AND (suffix == last 6 MAC chars) OR (OUI in `FLOCK_CHIP_OUIS`). Both paths are HIGH.
