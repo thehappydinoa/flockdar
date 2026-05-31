@@ -12,11 +12,13 @@
 #include "tdeck_ui_draw.h"
 #include "wifi_scanner.h"
 #include "ble_scanner.h"
+#include "rf_sightings.h"
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
 #endif
 
 #ifdef FD_ENABLE_SD
+#include <SD.h>
 #include "sdlog.h"
 #endif
 
@@ -29,7 +31,14 @@ constexpr int kHdrH = TdeckChrome::kHdrH;
 constexpr int kListRowH = 36;
 constexpr int kListTopY = kHdrH + 4;
 
-enum class Screen : uint8_t { kStatus = 0, kList = 1, kDetail = 2, kHelp = 3 };
+enum class Screen : uint8_t {
+  kStatus = 0,
+  kList = 1,
+  kDetail = 2,
+  kHelp = 3,
+  kNearby = 4,
+  kSd = 5,
+};
 
 constexpr int kStatY = 28;
 constexpr int kHitsY = 48;
@@ -61,6 +70,7 @@ uint32_t s_hit_total = 0;
 HitLine s_hits[kMaxHits];
 size_t s_hit_count = 0;
 size_t s_list_sel = 0;
+size_t s_nearby_sel = 0;
 Screen s_screen = Screen::kStatus;
 Screen s_return_screen = Screen::kStatus;
 
@@ -86,6 +96,11 @@ size_t s_paint_list_sel = SIZE_MAX;
 size_t s_paint_list_start = SIZE_MAX;
 size_t s_paint_list_count = SIZE_MAX;
 size_t s_paint_detail_sel = SIZE_MAX;
+size_t s_paint_nearby_sel = SIZE_MAX;
+size_t s_paint_nearby_start = SIZE_MAX;
+size_t s_paint_nearby_count = SIZE_MAX;
+char s_paint_sd_err[24] = "";
+bool s_paint_sd_log = false;
 
 uint16_t s_bat_mv = 0;
 bool s_bat_usb = false;
@@ -109,6 +124,10 @@ const char *screen_title(Screen s) {
     return "Detail";
   case Screen::kHelp:
     return "Help";
+  case Screen::kNearby:
+    return "Nearby";
+  case Screen::kSd:
+    return "SD card";
   default:
     return "flockdar";
   }
@@ -175,7 +194,8 @@ void push_hit(const Detection &d) {
     s_list_sel = s_hit_count - 1;
   }
   uint32_t now = millis();
-  if (now - s_last_draw >= kHitRedrawMs && s_screen != Screen::kHelp) {
+  if (now - s_last_draw >= kHitRedrawMs && s_screen != Screen::kHelp &&
+      s_screen != Screen::kSd) {
     s_dirty = true;
   }
 }
@@ -211,9 +231,9 @@ void poll_battery() {
 
 void paint_status_static() {
   chrome.paint_text(4, kStatY, "Status", 2, TFT_WHITE, TFT_BLACK);
-  chrome.paint_footer("h help  l list  j/k scroll");
+  chrome.paint_footer("h help  l list  a nearby");
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.drawString("d detail  +/- bright  space", 4, kFootY + 12);
+  tft.drawString("f SD info  d detail  space", 4, kFootY + 12);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   s_status_static = true;
 }
@@ -275,7 +295,7 @@ void paint_status_dynamic(bool force) {
       chrome.paint_line(kSdY, 14, buf);
       strncpy(s_paint_sd_path, sdlog_path(), sizeof(s_paint_sd_path) - 1);
     } else {
-      chrome.paint_line(kSdY, 14, "SD: not mounted");
+      chrome.paint_line(kSdY, 14, "SD: not mounted (f info)");
       s_paint_sd_path[0] = '\0';
     }
     s_paint_sd = sd;
@@ -328,78 +348,108 @@ void paint_status(bool force_full) {
   paint_status_dynamic(force_full || !s_status_static);
 }
 
-size_t list_window_start(size_t visible) {
-  if (s_hit_count <= visible) return 0;
-  if (s_list_sel >= visible) return s_list_sel - visible + 1;
-  return 0;
+void flock_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
+                  size_t line2sz) {
+  const HitLine &h = s_hits[index];
+  strncpy(line1, h.mac, line1sz);
+  snprintf(line2, line2sz, "%s %s %d dBm", h.kind, h.method, h.rssi);
 }
 
-void paint_list_row(size_t hit_index, size_t row_index, bool selected) {
-  const int y = kListTopY + (int)row_index * kListRowH;
-  const HitLine &h = s_hits[hit_index];
-  const uint16_t bg = selected ? TFT_NAVY : TFT_BLACK;
-  tft.fillRect(0, y, tft.width(), kListRowH - 2, bg);
-  chrome.paint_text(4, y + 2, h.mac, 2, TFT_WHITE, bg);
-  char detail[48];
-  snprintf(detail, sizeof(detail), "%s %s %d dBm", h.kind, h.method, h.rssi);
-  chrome.paint_text(4, y + 18, detail, 1, TFT_WHITE, bg);
-}
-
-void paint_list_footer() {
-  char footer[32];
-  snprintf(footer, sizeof(footer), "%u/%u  d detail", (unsigned)(s_list_sel + 1),
-           (unsigned)s_hit_count);
-  tft.fillRect(0, tft.height() - 16, tft.width(), 16, TFT_BLACK);
-  chrome.paint_text(4, tft.height() - 14, footer, 1, TFT_WHITE, TFT_BLACK);
+void nearby_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
+                   size_t line2sz) {
+  RfDevice d{};
+  if (!rf_sightings_get(index, &d)) {
+    strncpy(line1, "--", line1sz);
+    strncpy(line2, "", line2sz);
+    return;
+  }
+  strncpy(line1, d.mac, line1sz);
+  if (strcmp(d.kind, "wifi") == 0) {
+    snprintf(line2, line2sz, "wifi ch%u %d dBm x%lu", (unsigned)d.channel,
+             d.rssi, (unsigned long)d.seen);
+  } else {
+    snprintf(line2, line2sz, "%s %d dBm x%lu", d.label, d.rssi,
+             (unsigned long)d.seen);
+  }
 }
 
 void paint_list(bool force) {
-  const int visible = (tft.height() - kListTopY - 18) / kListRowH;
+  char footer[32];
+  snprintf(footer, sizeof(footer), "%u/%u  d detail",
+           s_hit_count ? (unsigned)(s_list_sel + 1) : 0U,
+           (unsigned)s_hit_count);
+  chrome.paint_scroll_list(s_hit_count, &s_list_sel, &s_paint_list_sel,
+                           &s_paint_list_start, &s_paint_list_count,
+                           flock_row_fn, footer, kListTopY, force);
+}
 
-  if (s_hit_count == 0) {
-    if (force) {
-      chrome.clear_body();
-      chrome.paint_text(4, 32, "No Flock detections yet", 1, TFT_WHITE,
-                        TFT_BLACK);
-    }
-    s_paint_list_sel = s_list_sel;
-    s_paint_list_start = 0;
-    s_paint_list_count = 0;
+void paint_nearby(bool force) {
+  const size_t count = rf_sightings_count();
+  char footer[40];
+  snprintf(footer, sizeof(footer), "%u uniq  %lu pkts  j/k",
+           (unsigned)count, (unsigned long)rf_sightings_events());
+  chrome.paint_scroll_list(count, &s_nearby_sel, &s_paint_nearby_sel,
+                           &s_paint_nearby_start, &s_paint_nearby_count,
+                           nearby_row_fn, footer, kListTopY, force);
+}
+
+void paint_sd(bool force) {
+#ifdef FD_ENABLE_SD
+  SdlogStatus st{};
+  sdlog_get_status(&st);
+  if (!force && strcmp(st.last_err, s_paint_sd_err) == 0 &&
+      st.logging == s_paint_sd_log) {
     return;
   }
-
-  if (s_list_sel >= s_hit_count) {
-    s_list_sel = s_hit_count - 1;
+  chrome.clear_body();
+  char buf[64];
+  int y = kListTopY;
+  snprintf(buf, sizeof(buf), "Logging: %s", st.logging ? "yes" : "no");
+  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+  y += 14;
+  snprintf(buf, sizeof(buf), "Card: %s", st.card_type_name);
+  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+  y += 14;
+  snprintf(buf, sizeof(buf), "Last err: %s", st.last_err);
+  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+  y += 14;
+  snprintf(buf, sizeof(buf), "SPI speed: %lu kHz",
+           (unsigned long)(st.last_speed_hz / 1000U));
+  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+  y += 14;
+  if (st.miso_level >= 0) {
+    snprintf(buf, sizeof(buf), "MISO: %s",
+             st.miso_level ? "high (idle)" : "low");
+    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+    y += 14;
   }
-
-  const size_t start = list_window_start((size_t)visible);
-
-  if (!force && s_hit_count == s_paint_list_count &&
-      start == s_paint_list_start && s_list_sel != s_paint_list_sel &&
-      s_paint_list_sel != SIZE_MAX) {
-    const size_t old_sel = s_paint_list_sel;
-    if (old_sel >= start && old_sel < start + (size_t)visible) {
-      paint_list_row(old_sel, old_sel - start, false);
-    }
-    if (s_list_sel >= start && s_list_sel < start + (size_t)visible) {
-      paint_list_row(s_list_sel, s_list_sel - start, true);
-    }
-    s_paint_list_sel = s_list_sel;
-    paint_list_footer();
-    return;
+  if (strcmp(st.last_err, "no response") == 0 && st.miso_level > 0) {
+    chrome.paint_text(4, y, "No SPI from card", 1, TFT_YELLOW, TFT_BLACK);
+    y += 14;
   }
-
-  if (force || start != s_paint_list_start || s_list_sel != s_paint_list_sel ||
-      s_hit_count != s_paint_list_count) {
-    chrome.clear_body();
-    for (size_t i = start; i < s_hit_count && (int)(i - start) < visible; i++) {
-      paint_list_row(i, i - start, i == s_list_sel);
-    }
-    paint_list_footer();
-    s_paint_list_sel = s_list_sel;
-    s_paint_list_start = start;
-    s_paint_list_count = s_hit_count;
+  snprintf(buf, sizeof(buf), "Mount tries: %lu",
+           (unsigned long)st.mount_attempts);
+  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+  y += 14;
+  if (st.path[0]) {
+    snprintf(buf, sizeof(buf), "File: %s", st.path);
+    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+    y += 14;
   }
+  chrome.paint_text(4, y + 4, "FAT32, 32GB or less", 1, TFT_DARKGREY,
+                    TFT_BLACK);
+  chrome.paint_text(4, y + 16, "slot on left side", 1, TFT_DARKGREY,
+                    TFT_BLACK);
+  chrome.paint_text(4, y + 28, "contacts toward screen", 1, TFT_DARKGREY,
+                    TFT_BLACK);
+  chrome.paint_footer("r retry mount  s status");
+  strncpy(s_paint_sd_err, st.last_err, sizeof(s_paint_sd_err) - 1);
+  s_paint_sd_log = st.logging;
+#else
+  (void)force;
+  chrome.clear_body();
+  chrome.paint_text(4, 32, "SD not compiled in", 1, TFT_WHITE, TFT_BLACK);
+#endif
 }
 
 void paint_detail(bool force) {
@@ -458,6 +508,8 @@ void paint_help(bool force) {
   const char *lines[] = {
       "s       status / wardrive",
       "l       Flock hit list",
+      "a       all nearby devices",
+      "f       SD card diagnostics",
       "d ret   detail for selection",
       "h       this screen",
       "j k     list down / up",
@@ -484,6 +536,8 @@ void paint_status_wrapper(bool force) { paint_status(force); }
 void paint_list_wrapper(bool force) { paint_list(force); }
 void paint_detail_wrapper(bool force) { paint_detail(force); }
 void paint_help_wrapper(bool force) { paint_help(force); }
+void paint_nearby_wrapper(bool force) { paint_nearby(force); }
+void paint_sd_wrapper(bool force) { paint_sd(force); }
 
 ScreenPainter screen_painter(Screen s) {
   switch (s) {
@@ -493,6 +547,10 @@ ScreenPainter screen_painter(Screen s) {
     return paint_detail_wrapper;
   case Screen::kHelp:
     return paint_help_wrapper;
+  case Screen::kNearby:
+    return paint_nearby_wrapper;
+  case Screen::kSd:
+    return paint_sd_wrapper;
   default:
     return paint_status_wrapper;
   }
@@ -511,23 +569,45 @@ void reset_screen_cache(Screen s) {
   case Screen::kHelp:
     s_help_painted = false;
     break;
+  case Screen::kNearby:
+    s_paint_nearby_sel = SIZE_MAX;
+    s_paint_nearby_start = SIZE_MAX;
+    s_paint_nearby_count = SIZE_MAX;
+    break;
+  case Screen::kSd:
+    s_paint_sd_err[0] = '\0';
+    s_paint_sd_log = false;
+    break;
   default:
     s_status_static = false;
     break;
   }
 }
 
-void list_move(int delta) {
-  if (s_hit_count == 0) return;
+void scroll_list(int delta) {
+  size_t *sel = nullptr;
+  size_t count = 0;
+  if (s_screen == Screen::kList) {
+    sel = &s_list_sel;
+    count = s_hit_count;
+  } else if (s_screen == Screen::kNearby) {
+    sel = &s_nearby_sel;
+    count = rf_sightings_count();
+  } else {
+    return;
+  }
+  if (count == 0 || !sel) return;
   if (delta < 0) {
-    if (s_list_sel > 0) s_list_sel--;
+    if (*sel > 0) (*sel)--;
     else return;
   } else {
-    if (s_list_sel + 1 < s_hit_count) s_list_sel++;
+    if (*sel + 1 < count) (*sel)++;
     else return;
   }
   s_dirty = true;
 }
+
+void list_move(int delta) { scroll_list(delta); }
 
 void goto_screen(Screen sc) {
   if (sc == Screen::kDetail && s_hit_count == 0) return;
@@ -617,7 +697,8 @@ void poll_trackball() {
       }
       break;
     case 1:
-      if (s_screen == Screen::kList || s_screen == Screen::kDetail) {
+      if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
+          s_screen == Screen::kNearby) {
         list_move(-1);
       }
       break;
@@ -629,7 +710,8 @@ void poll_trackball() {
       }
       break;
     case 3:
-      if (s_screen == Screen::kList || s_screen == Screen::kDetail) {
+      if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
+          s_screen == Screen::kNearby) {
         list_move(1);
       }
       break;
@@ -682,6 +764,22 @@ void handle_key(char key) {
     goto_screen(Screen::kList);
     return;
   }
+  if (key == 'a' || key == 'A') {
+    goto_screen(Screen::kNearby);
+    return;
+  }
+  if (key == 'f' || key == 'F') {
+    goto_screen(Screen::kSd);
+    return;
+  }
+  if (s_screen == Screen::kSd && (key == 'r' || key == 'R')) {
+#ifdef FD_ENABLE_SD
+    sdlog_retry_mount();
+#endif
+    s_paint_sd_err[0] = '\0';
+    s_dirty = true;
+    return;
+  }
   if (key == 'd' || key == 'D' || key == '\n' || key == '\r') {
     if (s_screen == Screen::kList || s_screen == Screen::kDetail) {
       goto_screen(Screen::kDetail);
@@ -695,17 +793,25 @@ void handle_key(char key) {
     return;
   }
   if (key == 'j' || key == 'J') {
-    if (s_screen == Screen::kStatus && s_hit_count > 0) {
-      goto_screen(Screen::kList);
+    if (s_screen == Screen::kStatus) {
+      if (s_hit_count > 0) {
+        goto_screen(Screen::kList);
+      } else if (rf_sightings_count() > 0) {
+        goto_screen(Screen::kNearby);
+      }
     }
-    list_move(1);
+    scroll_list(1);
     return;
   }
   if (key == 'k' || key == 'K' || key == '\b' || key == 127) {
-    if (s_screen == Screen::kStatus && s_hit_count > 0) {
-      goto_screen(Screen::kList);
+    if (s_screen == Screen::kStatus) {
+      if (s_hit_count > 0) {
+        goto_screen(Screen::kList);
+      } else if (rf_sightings_count() > 0) {
+        goto_screen(Screen::kNearby);
+      }
     }
-    list_move(-1);
+    scroll_list(-1);
     return;
   }
   if (key == 'g') {
@@ -733,9 +839,77 @@ void poll_keyboard() {
 
 }  // namespace
 
+#ifdef FD_ENABLE_SD
+bool tdeck_mount_sd(bool hard_reset, char *err, size_t err_len,
+                    uint32_t *speed_hz, uint8_t *card_type, int *miso_level) {
+  if (!s_ok) {
+    if (err_len) {
+      strncpy(err, "no display", err_len - 1);
+      err[err_len - 1] = '\0';
+    }
+    if (card_type) *card_type = CARD_NONE;
+    if (miso_level) *miso_level = -1;
+    return false;
+  }
+
+  tdeck_spi_release();
+  tdeck_spi_idle();
+  delay(20);
+
+  if (hard_reset) {
+    SPI.end();
+    delay(10);
+    SPI.begin(TDECK_SPI_SCK, TDECK_SPI_MISO, TDECK_SPI_MOSI);
+    delay(10);
+  }
+
+  if (miso_level) {
+    *miso_level = digitalRead(TDECK_SPI_MISO);
+  }
+
+  const uint32_t speed = 800000U;
+  if (speed_hz) *speed_hz = speed;
+
+  if (!SD.begin(TDECK_SD_CS, tft.getSPIinstance(), speed)) {
+    if (err_len) {
+      strncpy(err, "no response", err_len - 1);
+      err[err_len - 1] = '\0';
+    }
+    if (card_type) *card_type = CARD_NONE;
+    if (hard_reset) {
+      tft.init();
+      tft.setRotation(1);
+    }
+    return false;
+  }
+
+  uint8_t t = SD.cardType();
+  if (card_type) *card_type = t;
+  if (t == CARD_NONE) {
+    if (err_len) {
+      strncpy(err, "no card", err_len - 1);
+      err[err_len - 1] = '\0';
+    }
+    SD.end();
+    if (hard_reset) {
+      tft.init();
+      tft.setRotation(1);
+    }
+    return false;
+  }
+
+  if (err_len) {
+    strncpy(err, "ok", err_len - 1);
+    err[err_len - 1] = '\0';
+  }
+  return true;
+}
+#endif
+
 void tdeck_ui_begin() {
   pinMode(TDECK_POWERON, OUTPUT);
   digitalWrite(TDECK_POWERON, HIGH);
+  delay(150);  // SD / peripheral rail stabilize (LilyGO POWERON pattern)
 
   pinMode(TDECK_TFT_CS, OUTPUT);
   pinMode(TDECK_RADIO_CS, OUTPUT);
@@ -815,7 +989,15 @@ void tdeck_ui_loop() {
   if (s_screen == Screen::kStatus && sdlog_ok() != s_paint_sd) {
     s_dirty = true;
   }
+  if (s_screen == Screen::kSd && sdlog_ok() != s_paint_sd_log) {
+    s_dirty = true;
+  }
 #endif
+
+  if (s_screen == Screen::kNearby &&
+      rf_sightings_count() != s_paint_nearby_count) {
+    s_dirty = true;
+  }
 
   if (s_dirty) {
     redraw();

@@ -1,6 +1,7 @@
 // tdeck_ui_draw.h — shared TFT chrome (header, lines, body clear) for T-Deck UI.
 #pragma once
 
+#include <stddef.h>
 #include <stdint.h>
 
 class TFT_eSPI;
@@ -21,6 +22,14 @@ class TdeckChrome {
   void clear_body();
   void paint_footer(const char *text);
   void invalidate_header();
+
+  // Scrollable two-line list (shared by Flock hits and nearby RF lists).
+  typedef void (*ScrollRowFn)(size_t index, char *line1, size_t line1sz,
+                              char *line2, size_t line2sz);
+  void paint_scroll_list(size_t count, size_t *sel, size_t *paint_sel,
+                         size_t *paint_start, size_t *paint_count,
+                         ScrollRowFn row_fn, const char *footer, int top_y,
+                         bool force);
 
   TFT_eSPI &tft() { return tft_; }
 

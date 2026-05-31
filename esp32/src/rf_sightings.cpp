@@ -1,0 +1,149 @@
+#include "rf_sightings.h"
+
+#include <Arduino.h>
+#include <stdio.h>
+#include <string.h>
+
+namespace {
+
+constexpr size_t kMaxDevices = 48;
+
+struct Entry {
+  uint8_t mac[6];
+  char kind[5];
+  char label[24];
+  int rssi;
+  uint8_t channel;
+  uint32_t seen;
+  uint32_t last_ms;
+};
+
+Entry s_devs[kMaxDevices];
+Entry s_sorted[kMaxDevices];
+size_t s_count = 0;
+uint32_t s_events = 0;
+bool s_sort_dirty = true;
+portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+
+bool is_unicast(const uint8_t mac[6]) { return (mac[0] & 0x01) == 0; }
+
+void mac_to_str(const uint8_t mac[6], char out[18]) {
+  snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2],
+           mac[3], mac[4], mac[5]);
+}
+
+int find_mac(const uint8_t mac[6]) {
+  for (size_t i = 0; i < s_count; i++) {
+    if (memcmp(s_devs[i].mac, mac, 6) == 0) return (int)i;
+  }
+  return -1;
+}
+
+int find_oldest_slot() {
+  if (s_count < kMaxDevices) return (int)s_count;
+  int idx = 0;
+  for (size_t i = 1; i < kMaxDevices; i++) {
+    if (s_devs[i].last_ms < s_devs[idx].last_ms) idx = (int)i;
+  }
+  return idx;
+}
+
+void note_device(const uint8_t mac[6], const char *kind, const char *label,
+                 int rssi, uint8_t channel) {
+  portENTER_CRITICAL(&s_mux);
+  s_events++;
+  int idx = find_mac(mac);
+  if (idx < 0) {
+    idx = find_oldest_slot();
+    if ((size_t)idx == s_count && s_count < kMaxDevices) s_count++;
+    Entry &e = s_devs[idx];
+    memcpy(e.mac, mac, 6);
+    strncpy(e.kind, kind, sizeof(e.kind) - 1);
+    strncpy(e.label, label ? label : "", sizeof(e.label) - 1);
+    e.channel = channel;
+    e.seen = 1;
+  } else {
+    Entry &e = s_devs[idx];
+    e.seen++;
+    if (label && label[0]) strncpy(e.label, label, sizeof(e.label) - 1);
+  }
+  s_devs[idx].rssi = rssi;
+  s_devs[idx].last_ms = millis();
+  s_sort_dirty = true;
+  portEXIT_CRITICAL(&s_mux);
+}
+
+static int cmp_last_ms(const void *a, const void *b) {
+  const Entry *ea = (const Entry *)a;
+  const Entry *eb = (const Entry *)b;
+  if (ea->last_ms > eb->last_ms) return -1;
+  if (ea->last_ms < eb->last_ms) return 1;
+  return 0;
+}
+
+void refresh_sorted() {
+  if (!s_sort_dirty) return;
+  portENTER_CRITICAL(&s_mux);
+  memcpy(s_sorted, s_devs, s_count * sizeof(Entry));
+  const size_t n = s_count;
+  portEXIT_CRITICAL(&s_mux);
+  if (n > 1) {
+    qsort(s_sorted, n, sizeof(Entry), cmp_last_ms);
+  }
+  s_sort_dirty = false;
+}
+
+}  // namespace
+
+void rf_sightings_begin() {
+  portENTER_CRITICAL(&s_mux);
+  memset(s_devs, 0, sizeof(s_devs));
+  memset(s_sorted, 0, sizeof(s_sorted));
+  s_count = 0;
+  s_events = 0;
+  s_sort_dirty = true;
+  portEXIT_CRITICAL(&s_mux);
+}
+
+void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel) {
+  if (!is_unicast(mac)) return;
+  note_device(mac, "wifi", "mgmt", rssi, channel);
+}
+
+void rf_sightings_note_ble(const uint8_t mac[6], const char *name, int rssi) {
+  note_device(mac, "ble", name && name[0] ? name : "ble", rssi, 0);
+}
+
+size_t rf_sightings_count() {
+  portENTER_CRITICAL(&s_mux);
+  size_t n = s_count;
+  portEXIT_CRITICAL(&s_mux);
+  return n;
+}
+
+uint32_t rf_sightings_events() {
+  portENTER_CRITICAL(&s_mux);
+  uint32_t n = s_events;
+  portEXIT_CRITICAL(&s_mux);
+  return n;
+}
+
+bool rf_sightings_get(size_t index, RfDevice *out) {
+  if (!out) return false;
+  refresh_sorted();
+  portENTER_CRITICAL(&s_mux);
+  const size_t n = s_count;
+  if (index >= n) {
+    portEXIT_CRITICAL(&s_mux);
+    return false;
+  }
+  const Entry &e = s_sorted[index];
+  mac_to_str(e.mac, out->mac);
+  strncpy(out->kind, e.kind, sizeof(out->kind) - 1);
+  strncpy(out->label, e.label, sizeof(out->label) - 1);
+  out->rssi = e.rssi;
+  out->channel = e.channel;
+  out->seen = e.seen;
+  portEXIT_CRITICAL(&s_mux);
+  return true;
+}
