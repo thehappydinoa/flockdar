@@ -9,6 +9,7 @@
 #include "config.h"
 #include "match.h"
 #include "protocol.h"
+#include "rf_sightings.h"
 
 // 2.4 GHz primaries — the only channels Flock cameras are seen on.
 static const uint8_t HOP_CHANNELS[] = {1, 6, 11};
@@ -57,6 +58,10 @@ static void promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   const uint8_t *addr2 = pl + 10;  // transmitter
   const int rssi = pkt->rx_ctrl.rssi;
   const uint8_t ch = pkt->rx_ctrl.channel;
+
+  if ((addr2[0] & 0x01) == 0) {
+    rf_sightings_note_wifi(addr2, rssi, ch);
+  }
 
   // 1+2. addr2 transmitter — a Flock device actively sending a frame.
   if (oui_is_flock(addr2)) enqueue_wifi("addr2", addr2, rssi, ch);
