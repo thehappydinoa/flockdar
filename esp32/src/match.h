@@ -14,3 +14,9 @@ bool mfgrid_is_flock(uint16_t cid);
 // Case-insensitive substring match of name against the BLE name patterns.
 // Returns the matched pattern (for the JSON detail) or nullptr.
 const char *ble_name_match(const char *name);
+
+// Known vendor name from MAC OUI (Apple, Google, Samsung, …) or nullptr.
+const char *oui_vendor_name(const uint8_t mac[6]);
+
+// Known vendor from BLE manufacturer ID, or nullptr.
+const char *ble_vendor_name(uint16_t cid);

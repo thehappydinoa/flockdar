@@ -53,15 +53,16 @@ static bool ble_ad_parse(uint8_t type, const uint8_t *data, uint8_t data_len,
     return false;
   }
 
-  if (type == 0xFF && data_len >= 2 && !c->flock) {
+  if (type == 0xFF && data_len >= 2) {
     const uint16_t cid =
         (uint16_t)data[0] | ((uint16_t)data[1] << 8);
-    if (mfgrid_is_flock(cid)) {
-      d.mfgrid = cid;
-      d.has_mfgrid = true;
+    d.mfgrid = cid;
+    d.has_mfgrid = true;
+    if (!c->flock && mfgrid_is_flock(cid)) {
       strncpy(d.method, "mfgrid", sizeof(d.method) - 1);
       c->flock = true;
     }
+    return false;
   }
   return false;
 }
@@ -90,7 +91,8 @@ class FlockScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
     }
 
     if (d.has_mac) {
-      rf_sightings_note_ble(d.mac, d.has_name ? d.name : nullptr, d.rssi);
+      rf_sightings_note_ble(d.mac, d.has_name ? d.name : nullptr, d.rssi,
+                            d.has_mfgrid ? d.mfgrid : 0, d.has_mfgrid);
     }
 
     if (!g_det_queue || !ctx.flock || !d.has_mac) return;
