@@ -10,6 +10,7 @@
 #include "config.h"
 #include "tdeck_board.h"
 #include "tdeck_ui_draw.h"
+#include "tdeck_theme.h"
 #include "wifi_scanner.h"
 #include "ble_scanner.h"
 #include "rf_sightings.h"
@@ -30,8 +31,9 @@ constexpr size_t kMaxHits = 24;
 constexpr uint32_t kHitRedrawMs = 300;
 constexpr uint32_t kBatPollMs = 5000;
 constexpr int kHdrH = TdeckChrome::kHdrH;
-constexpr int kListRowH = 36;
-constexpr int kListTopY = kHdrH + 4;
+constexpr int kListTopY = TdeckTheme::kBodyTop + 4;
+
+using namespace TdeckTheme;
 
 enum class Screen : uint8_t {
   kStatus = 0,
@@ -42,15 +44,57 @@ enum class Screen : uint8_t {
   kSd = 5,
 };
 
-constexpr int kStatY = 28;
-constexpr int kHitsY = 48;
-constexpr int kChY = 62;
-constexpr int kGpsY = 76;
-constexpr int kSdY = 104;
-constexpr int kLastY = 132;
-constexpr int kFootY = 212;
-
 constexpr size_t kCarouselPages = 3;
+
+// Status field layout (y offsets from kStatContentY).
+constexpr int kStatContentY = kBodyTop + 4;
+constexpr int kStatBlockGap = 2;  // divider padding (compact)
+
+struct StatusLayout {
+  int y_det0;
+  int y_det1;
+  int y_det2;
+  int y_ch;
+#ifdef FD_ENABLE_GPS
+  int y_gps;
+#endif
+#ifdef FD_ENABLE_SD
+  int y_sd;
+#endif
+  int y_last;
+  int content_h;
+};
+
+StatusLayout status_layout() {
+  StatusLayout L{};
+  int y = kSectionH + 2;
+  L.y_det0 = y;
+  y += kFieldH;
+  L.y_det1 = y;
+  y += kFieldH;
+  L.y_det2 = y;
+  y += kFieldH;
+  L.y_ch = y;
+  y += kFieldH + kStatBlockGap + kStatBlockGap;
+#ifdef FD_ENABLE_GPS
+  y += kSectionH + 2;
+  L.y_gps = y;
+  y += kFieldH;
+  y += kStatBlockGap + kStatBlockGap;
+#endif
+#ifdef FD_ENABLE_SD
+  y += kSectionH + 2;
+  L.y_sd = y;
+  y += kFieldH;
+  y += kStatBlockGap + kStatBlockGap;
+#endif
+  y += kSectionH + 2;
+  L.y_last = y;
+  L.content_h = y + 36;
+  return L;
+}
+
+int s_status_scroll = 0;
 
 struct HitLine {
   char mac[18];
@@ -69,6 +113,22 @@ enum class DetailSource : uint8_t { kFlock = 0, kNearby = 1 };
 
 TFT_eSPI tft;
 TdeckChrome chrome(tft);
+
+int status_body_h() {
+  return tft.height() - kHdrH - kChromeBottom;
+}
+
+int status_max_scroll(const StatusLayout &L) {
+  const int content_bottom = kStatContentY + L.content_h;
+  const int visible_bottom = tft.height() - kChromeBottom;
+  const int max_s = content_bottom - visible_bottom;
+  return max_s > 0 ? max_s : 0;
+}
+
+int status_paint_y(int rel_y) {
+  return kStatContentY + rel_y - s_status_scroll;
+}
+
 bool s_ok = false;
 bool s_kb = false;
 
@@ -116,6 +176,23 @@ bool s_bat_usb = false;
 uint32_t s_last_bat_poll = 0;
 bool s_help_painted = false;
 uint32_t s_help_key_block_until = 0;
+int s_paint_status_scroll = -1;
+
+void invalidate_status_paint_cache() {
+  s_paint_status_scroll = -1;
+  s_paint_hits = UINT32_MAX;
+  s_paint_ch = 255;
+  s_paint_wifi_rf = UINT32_MAX;
+  s_paint_ble_rf = UINT32_MAX;
+  s_paint_gps_fix = !s_paint_gps_fix;
+  s_paint_nmea = UINT32_MAX;
+  s_paint_sats = 255;
+  s_paint_sd = !s_paint_sd;
+  s_paint_sd_path[0] = '\0';
+  s_paint_hit_count = SIZE_MAX;
+  s_paint_last_mac[0] = '\0';
+  s_paint_last_detail[0] = '\0';
+}
 
 bool kb_poll_key(char *out);
 
@@ -128,17 +205,17 @@ void kb_drain() {
 const char *screen_title(Screen s) {
   switch (s) {
   case Screen::kList:
-    return "Hits";
+    return "HITS";
   case Screen::kDetail:
-    return "Detail";
+    return "DETAIL";
   case Screen::kHelp:
-    return "Help";
+    return "HELP";
   case Screen::kNearby:
-    return "Nearby";
+    return "NEARBY";
   case Screen::kSd:
-    return "SD card";
+    return "SD CARD";
   default:
-    return "flockdar";
+    return "FLOCKDAR";
   }
 }
 
@@ -246,21 +323,38 @@ void poll_battery() {
   }
 }
 
-void paint_status_static() {
-  chrome.paint_text(4, kStatY, "Status", 2, TFT_WHITE, TFT_BLACK);
-  chrome.paint_footer("L/R pages  h help  f SD");
-  tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.drawString("click hits  d detail", 4, kFootY + 12);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  s_status_static = true;
+void paint_status_static_labels(const StatusLayout &L) {
+  int y = kStatContentY - s_status_scroll;
+  chrome.paint_section_label(y, "DETECTION");
+  y = kStatContentY + L.y_ch + kFieldH + kStatBlockGap - s_status_scroll;
+  chrome.paint_divider(y);
+#ifdef FD_ENABLE_GPS
+  y = kStatContentY + L.y_gps - kSectionH - 2 - s_status_scroll;
+  chrome.paint_section_label(y, "GPS");
+  y = kStatContentY + L.y_gps + kFieldH + kStatBlockGap - s_status_scroll;
+  chrome.paint_divider(y);
+#endif
+#ifdef FD_ENABLE_SD
+  y = kStatContentY + L.y_sd - kSectionH - 2 - s_status_scroll;
+  chrome.paint_section_label(y, "STORAGE");
+  y = kStatContentY + L.y_sd + kFieldH + kStatBlockGap - s_status_scroll;
+  chrome.paint_divider(y);
+#endif
+  y = kStatContentY + L.y_last - kSectionH - 2 - s_status_scroll;
+  chrome.paint_section_label(y, "LAST HIT");
 }
 
 void paint_status_dynamic(bool force) {
+  const StatusLayout L = status_layout();
+  char val[32];
   char buf[64];
+  const int body_top = kHdrH;
+  const int body_bot = tft.height() - kChromeBottom;
 
   if (force || s_hit_total != s_paint_hits) {
-    snprintf(buf, sizeof(buf), "Flock hits: %lu", (unsigned long)s_hit_total);
-    chrome.paint_line(kHitsY, 14, buf);
+    snprintf(val, sizeof(val), "%lu", (unsigned long)s_hit_total);
+    chrome.paint_field_icon(status_paint_y(L.y_det0), StatusIcon::kFlock,
+                            "Flock hits", val);
     s_paint_hits = s_hit_total;
   }
 
@@ -269,9 +363,15 @@ void paint_status_dynamic(bool force) {
   uint32_t ble_rf = ble_scanner_adverts();
   if (force || ch != s_paint_ch || wifi_rf != s_paint_wifi_rf ||
       ble_rf != s_paint_ble_rf) {
-    snprintf(buf, sizeof(buf), "ch %u  wifi %lu  ble %lu", ch,
-             (unsigned long)wifi_rf, (unsigned long)ble_rf);
-    chrome.paint_line(kChY, 14, buf);
+    snprintf(val, sizeof(val), "%lu", (unsigned long)wifi_rf);
+    chrome.paint_field_icon(status_paint_y(L.y_det1), StatusIcon::kWifi,
+                            "WiFi frames", val);
+    snprintf(val, sizeof(val), "%lu", (unsigned long)ble_rf);
+    chrome.paint_field_icon(status_paint_y(L.y_det2), StatusIcon::kBle,
+                            "BLE adverts", val);
+    snprintf(val, sizeof(val), "%u", (unsigned)ch);
+    chrome.paint_field_icon(status_paint_y(L.y_ch), StatusIcon::kChannel,
+                            "Channel", val);
     s_paint_ch = ch;
     s_paint_wifi_rf = wifi_rf;
     s_paint_ble_rf = ble_rf;
@@ -287,15 +387,16 @@ void paint_status_dynamic(bool force) {
   if (force || gps_fix != s_paint_gps_fix || nmea_chars != s_paint_nmea ||
       gps_sats != s_paint_sats) {
     if (gps_fix) {
-      snprintf(buf, sizeof(buf), "GPS: %.5f", gps_lat);
-      chrome.paint_line(kGpsY, 14, buf);
-      snprintf(buf, sizeof(buf), "     %.5f", gps_lon);
-      chrome.paint_line(kGpsY + 14, 14, buf);
+      snprintf(val, sizeof(val), "%.5f,%.5f", gps_lat, gps_lon);
+      chrome.paint_field_icon(status_paint_y(L.y_gps), StatusIcon::kGps,
+                              "Position", val);
     } else if (nmea_chars < 10) {
-      chrome.paint_line(kGpsY, 28, "GPS: no module");
+      chrome.paint_field_icon(status_paint_y(L.y_gps), StatusIcon::kGps, "Fix",
+                              "no module");
     } else {
-      snprintf(buf, sizeof(buf), "GPS: fix.. (%u sats)", (unsigned)gps_sats);
-      chrome.paint_line(kGpsY, 14, buf);
+      snprintf(val, sizeof(val), "acquiring (%u)", (unsigned)gps_sats);
+      chrome.paint_field_icon(status_paint_y(L.y_gps), StatusIcon::kGps, "Fix",
+                              val);
     }
     s_paint_gps_fix = gps_fix;
     s_paint_nmea = nmea_chars;
@@ -308,68 +409,135 @@ void paint_status_dynamic(bool force) {
   if (force || sd != s_paint_sd ||
       strcmp(s_paint_sd_path, sd ? sdlog_path() : "") != 0) {
     if (sd) {
-      snprintf(buf, sizeof(buf), "SD: %s", sdlog_path());
-      chrome.paint_line(kSdY, 14, buf);
+      chrome.paint_field_icon(status_paint_y(L.y_sd), StatusIcon::kSd, "SD log",
+                              sdlog_path());
       strncpy(s_paint_sd_path, sdlog_path(), sizeof(s_paint_sd_path) - 1);
     } else {
-      chrome.paint_line(kSdY, 14, "SD: not mounted (f info)");
+      chrome.paint_field_icon(status_paint_y(L.y_sd), StatusIcon::kSd, "SD log",
+                              "not mounted");
       s_paint_sd_path[0] = '\0';
     }
     s_paint_sd = sd;
   }
 #endif
 
+  const int y_last = status_paint_y(L.y_last);
   bool last_changed = force || s_hit_count != s_paint_hit_count;
   if (!last_changed && s_hit_count > 0) {
     const HitLine &h = s_hits[s_hit_count - 1];
     char detail[48];
-    snprintf(detail, sizeof(detail), "%s %s rssi %d", h.kind, h.method, h.rssi);
+    snprintf(detail, sizeof(detail), "%s · %s · %d dBm", h.kind, h.method,
+             h.rssi);
     last_changed = (strcmp(s_paint_last_mac, h.mac) != 0 ||
                     strcmp(s_paint_last_detail, detail) != 0);
   }
   if (last_changed) {
-    tft.fillRect(0, kLastY, tft.width(), kFootY - kLastY, TFT_BLACK);
+    const int block_h = 36;
+    if (y_last + block_h > body_top && y_last < body_bot) {
+      const int clip_y = y_last < body_top ? body_top : y_last;
+      const int clip_h =
+          (y_last + block_h > body_bot ? body_bot : y_last + block_h) - clip_y;
+      if (clip_h > 0) {
+        tft.fillRect(0, clip_y, tft.width(), clip_h, kBg);
+      }
+    }
     if (s_hit_count > 0) {
       const HitLine &h = s_hits[s_hit_count - 1];
-      chrome.paint_text(4, kLastY, "Last hit:", 2, TFT_WHITE, TFT_BLACK);
-      chrome.paint_text(4, kLastY + 18, h.mac, 2, TFT_WHITE, TFT_BLACK);
-      snprintf(buf, sizeof(buf), "%s %s rssi %d", h.kind, h.method, h.rssi);
-      chrome.paint_text(4, kLastY + 32, buf, 1, TFT_WHITE, TFT_BLACK);
+      if (y_last + block_h > body_top && y_last < body_bot) {
+        tft.fillRect(0, y_last, kAccentW, block_h, kFlock);
+        draw_status_icon(tft, StatusIcon::kFlock, 4 + kAccentW, y_last + 10,
+                         kFlock, kBg);
+        chrome.paint_text(4 + kAccentW + 18, y_last + 2, h.mac, kFontMac,
+                          kText, kBg);
+        snprintf(buf, sizeof(buf), "%s · %s · %d dBm", h.kind, h.method,
+                 h.rssi);
+        chrome.paint_text(4 + kAccentW + 18, y_last + 20, buf, kFontLabel,
+                          kTextMuted, kBg);
+      }
       strncpy(s_paint_last_mac, h.mac, sizeof(s_paint_last_mac) - 1);
       strncpy(s_paint_last_detail, buf, sizeof(s_paint_last_detail) - 1);
-    } else {
-      chrome.paint_text(4, kLastY + 8, "No Flock cameras yet", 1, TFT_WHITE,
-                        TFT_BLACK);
+    } else if (y_last + 14 > body_top && y_last < body_bot) {
+      chrome.paint_text(4, y_last + 10, "No Flock cameras yet", kFontLabel,
+                        kTextMuted, kBg);
       s_paint_last_mac[0] = '\0';
       s_paint_last_detail[0] = '\0';
     }
     s_paint_hit_count = s_hit_count;
   }
+
+  s_paint_status_scroll = s_status_scroll;
+}
+
+void scroll_status(int delta) {
+  const StatusLayout L = status_layout();
+  const int max_s = status_max_scroll(L);
+  if (max_s == 0) return;
+  const int step = kFieldH;
+  const int prev = s_status_scroll;
+  if (delta < 0) {
+    if (s_status_scroll <= 0) return;
+    s_status_scroll -= step;
+    if (s_status_scroll < 0) s_status_scroll = 0;
+  } else {
+    if (s_status_scroll >= max_s) return;
+    s_status_scroll += step;
+    if (s_status_scroll > max_s) s_status_scroll = max_s;
+  }
+  if (s_status_scroll == prev) return;
+  chrome.clear_body();
+  s_status_static = false;
+  invalidate_status_paint_cache();
+  s_dirty = true;
 }
 
 void paint_status(bool force_full) {
   if (force_full || s_painted != Screen::kStatus) {
     chrome.clear_body();
     s_status_static = false;
-    s_paint_hits = UINT32_MAX;
-    s_paint_ch = 255;
-    s_paint_gps_fix = false;
-    s_paint_nmea = 0;
-    s_paint_sats = 255;
-    s_paint_hit_count = SIZE_MAX;
+    s_status_scroll = 0;
+    invalidate_status_paint_cache();
     s_painted = Screen::kStatus;
   }
-  if (!s_status_static) {
-    paint_status_static();
+  const StatusLayout L = status_layout();
+  const int max_s = status_max_scroll(L);
+  if (max_s == 0) {
+    s_status_scroll = 0;
+  } else if (s_status_scroll > max_s) {
+    s_status_scroll = max_s;
+    s_status_static = false;
+    invalidate_status_paint_cache();
   }
-  paint_status_dynamic(force_full || !s_status_static);
+
+  const int body_h = status_body_h();
+  const bool scroll_dirty = (s_status_scroll != s_paint_status_scroll);
+  const bool dynamic_force = force_full || scroll_dirty || !s_status_static;
+
+  tft.setViewport(0, kHdrH, tft.width(), body_h, false);
+  if (dynamic_force) {
+    tft.fillRect(0, kHdrH, tft.width(), body_h, kBg);
+    s_status_static = false;
+  }
+
+  if (!s_status_static) {
+    paint_status_static_labels(L);
+    s_status_static = true;
+  }
+  paint_status_dynamic(dynamic_force);
+  tft.resetViewport();
 }
 
 void flock_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
-                  size_t line2sz) {
+                  size_t line2sz, bool *flock_accent) {
   const HitLine &h = s_hits[index];
   strncpy(line1, h.mac, line1sz);
-  snprintf(line2, line2sz, "%s %s %d dBm", h.kind, h.method, h.rssi);
+  snprintf(line2, line2sz, "%s · %s · %d dBm", h.kind, h.method, h.rssi);
+  if (flock_accent) {
+    *flock_accent =
+        (strstr(h.method, "FLOCK") != nullptr ||
+         strstr(h.method, "RAVEN") != nullptr ||
+         strstr(h.method, "PENGUIN") != nullptr ||
+         strstr(h.method, "OUI") != nullptr);
+  }
 }
 
 void nearby_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
@@ -405,23 +573,16 @@ void nearby_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
 }
 
 void paint_list(bool force) {
-  char footer[32];
-  snprintf(footer, sizeof(footer), "%u/%u  d detail  L/R",
-           s_hit_count ? (unsigned)(s_list_sel + 1) : 0U,
-           (unsigned)s_hit_count);
   chrome.paint_scroll_list(s_hit_count, &s_list_sel, &s_paint_list_sel,
                            &s_paint_list_start, &s_paint_list_count,
-                           flock_row_fn, footer, kListTopY, force);
+                           flock_row_fn, kListTopY, force);
 }
 
 void paint_nearby(bool force) {
   const size_t count = rf_sightings_count();
-  char footer[40];
-  snprintf(footer, sizeof(footer), "%u uniq  d detail  L/R",
-           (unsigned)count);
   chrome.paint_icon_scroll_list(count, &s_nearby_sel, &s_paint_nearby_sel,
                                 &s_paint_nearby_start, &s_paint_nearby_count,
-                                nearby_icon_row_fn, footer, kListTopY, force);
+                                nearby_icon_row_fn, kListTopY, force);
 }
 
 void paint_sd(bool force) {
@@ -433,53 +594,48 @@ void paint_sd(bool force) {
     return;
   }
   chrome.clear_body();
-  char buf[64];
+  char val[32];
   int y = kListTopY;
-  snprintf(buf, sizeof(buf), "Logging: %s", st.logging ? "yes" : "no");
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
-  snprintf(buf, sizeof(buf), "Card: %s", st.card_type_name);
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
-  snprintf(buf, sizeof(buf), "Last err: %s", st.last_err);
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
-  snprintf(buf, sizeof(buf), "SPI speed: %lu kHz",
-           (unsigned long)(st.last_speed_hz / 1000U));
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
+  chrome.paint_section_label(y, "SD CARD");
+  y += kSectionH + 4;
+  snprintf(val, sizeof(val), "%s", st.logging ? "yes" : "no");
+  chrome.paint_field(y, "Logging", val);
+  y += kFieldH;
+  chrome.paint_field(y, "Card", st.card_type_name);
+  y += kFieldH;
+  chrome.paint_field(y, "Last err", st.last_err);
+  y += kFieldH;
+  snprintf(val, sizeof(val), "%lu kHz", (unsigned long)(st.last_speed_hz / 1000U));
+  chrome.paint_field(y, "SPI speed", val);
+  y += kFieldH;
   if (st.miso_level >= 0) {
-    snprintf(buf, sizeof(buf), "MISO: %s",
-             st.miso_level ? "high (idle)" : "low");
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
+    chrome.paint_field(y, "MISO", st.miso_level ? "high" : "low");
+    y += kFieldH;
   }
   if (strcmp(st.last_err, "no response") == 0 && st.miso_level > 0) {
-    chrome.paint_text(4, y, "No SPI from card", 1, TFT_YELLOW, TFT_BLACK);
-    y += 14;
+    chrome.paint_text(4, y, "No SPI from card", kFontLabel, kWarn, kBg);
+    y += kFieldH;
   }
-  snprintf(buf, sizeof(buf), "Mount tries: %lu",
-           (unsigned long)st.mount_attempts);
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
+  snprintf(val, sizeof(val), "%lu", (unsigned long)st.mount_attempts);
+  chrome.paint_field(y, "Mount tries", val);
+  y += kFieldH;
   if (st.path[0]) {
-    snprintf(buf, sizeof(buf), "File: %s", st.path);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
+    chrome.paint_field(y, "File", st.path);
+    y += kFieldH;
   }
-  chrome.paint_text(4, y + 4, "FAT32, 32GB or less", 1, TFT_DARKGREY,
-                    TFT_BLACK);
-  chrome.paint_text(4, y + 16, "slot on left side", 1, TFT_DARKGREY,
-                    TFT_BLACK);
-  chrome.paint_text(4, y + 28, "contacts toward screen", 1, TFT_DARKGREY,
-                    TFT_BLACK);
-  chrome.paint_footer("r retry mount  s status");
+  chrome.paint_divider(y + 2);
+  y += 6;
+  chrome.paint_text(4, y, "FAT32, 32GB or less", kFontLabel, kTextMuted, kBg);
+  y += kFieldH;
+  chrome.paint_text(4, y, "Slot on left, contacts in", kFontLabel, kTextMuted,
+                    kBg);
   strncpy(s_paint_sd_err, st.last_err, sizeof(s_paint_sd_err) - 1);
   s_paint_sd_log = st.logging;
 #else
   (void)force;
   chrome.clear_body();
-  chrome.paint_text(4, 32, "SD not compiled in", 1, TFT_WHITE, TFT_BLACK);
+  chrome.paint_text(4, kListTopY + 8, "SD not compiled in", kFontLabel, kTextMuted,
+                    kBg);
 #endif
 }
 
@@ -497,8 +653,8 @@ void paint_detail(bool force) {
   if (mode == 1U) {
     const size_t count = rf_sightings_count();
     if (count == 0) {
-      chrome.paint_text(4, 32, "No devices yet", 1, TFT_WHITE, TFT_BLACK);
-      chrome.paint_footer("s status  a nearby");
+      chrome.paint_text(4, kListTopY + 8, "No devices yet", kFontLabel, kTextMuted,
+                        kBg);
       s_paint_detail_sel = sel;
       s_paint_detail_mode = mode;
       return;
@@ -508,57 +664,62 @@ void paint_detail(bool force) {
     }
     RfDevice d{};
     if (!rf_sightings_get(s_nearby_sel, &d)) {
-      chrome.paint_text(4, 32, "Device gone", 1, TFT_WHITE, TFT_BLACK);
-      chrome.paint_footer("s nearby  a list");
+      chrome.paint_text(4, kListTopY + 8, "Device gone", kFontLabel, kTextMuted,
+                        kBg);
       return;
     }
     const char *vendor = rf_vendor(d);
     const DevIcon icon = classify_rf_device(d, vendor);
     char buf[64];
+    char val[24];
     int y = kListTopY;
-    draw_dev_icon(tft, icon, 4, y, TFT_CYAN, TFT_BLACK);
+    draw_dev_icon(tft, icon, 4, y, kAccent, kBg);
     if (vendor) {
       snprintf(buf, sizeof(buf), "%s · %s", vendor, dev_icon_label(icon));
     } else {
       snprintf(buf, sizeof(buf), "%s · %s", d.mac, dev_icon_label(icon));
     }
-    chrome.paint_text(22, y + 2, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 18;
-    chrome.paint_text(4, y, d.mac, 1, TFT_DARKGREY, TFT_BLACK);
-    y += 14;
-    snprintf(buf, sizeof(buf), "RSSI: %d dBm", d.rssi);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
+    chrome.paint_text(22, y + 2, buf, kFontLabel, kText, kBg);
+    y += 20;
+    chrome.paint_divider(y);
+    y += 4;
+    chrome.paint_section_label(y, "IDENTITY");
+    y += kSectionH + 2;
+    chrome.paint_field(y, "MAC", d.mac);
+    y += kFieldH;
+    chrome.paint_section_label(y, "RF");
+    y += kSectionH + 2;
+    snprintf(val, sizeof(val), "%d dBm", d.rssi);
+    chrome.paint_field(y, "RSSI", val);
+    y += kFieldH;
     if (strcmp(d.kind, "wifi") == 0 && d.channel > 0) {
-      snprintf(buf, sizeof(buf), "Channel: %u", (unsigned)d.channel);
-      chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-      y += 14;
+      snprintf(val, sizeof(val), "%u", (unsigned)d.channel);
+      chrome.paint_field(y, "Channel", val);
+      y += kFieldH;
     }
-    if (strcmp(d.kind, "ble") == 0 && d.label[0] && strcmp(d.label, "ble") != 0) {
-      snprintf(buf, sizeof(buf), "Name: %s", d.label);
-      chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-      y += 14;
+    if (strcmp(d.kind, "ble") == 0 && d.label[0] &&
+        strcmp(d.label, "ble") != 0) {
+      chrome.paint_field(y, "Name", d.label);
+      y += kFieldH;
     }
     if (d.has_mfgrid) {
-      snprintf(buf, sizeof(buf), "Mfgrid: %u", (unsigned)d.mfgrid);
-      chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-      y += 14;
+      snprintf(val, sizeof(val), "%u", (unsigned)d.mfgrid);
+      chrome.paint_field(y, "Mfgrid", val);
+      y += kFieldH;
     }
-    snprintf(buf, sizeof(buf), "Seen: %lu times", (unsigned long)d.seen);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
-    snprintf(buf, sizeof(buf), "%u / %u", (unsigned)(s_nearby_sel + 1),
+    snprintf(val, sizeof(val), "%lu", (unsigned long)d.seen);
+    chrome.paint_field(y, "Seen", val);
+    y += kFieldH;
+    snprintf(val, sizeof(val), "%u / %u", (unsigned)(s_nearby_sel + 1),
              (unsigned)count);
-    chrome.paint_text(4, y + 4, buf, 1, TFT_WHITE, TFT_BLACK);
-    chrome.paint_footer("s nearby  j/k  h help");
+    chrome.paint_field(y, "Index", val);
     s_paint_detail_sel = s_nearby_sel;
     s_paint_detail_mode = mode;
     return;
   }
 
   if (s_hit_count == 0) {
-    chrome.paint_text(4, 32, "No hits yet", 1, TFT_WHITE, TFT_BLACK);
-    chrome.paint_footer("s status  l list");
+    chrome.paint_text(4, kListTopY + 8, "No hits yet", kFontLabel, kTextMuted, kBg);
     s_paint_detail_sel = s_list_sel;
     return;
   }
@@ -567,35 +728,39 @@ void paint_detail(bool force) {
   }
 
   const HitLine &h = s_hits[s_list_sel];
-  char buf[64];
+  char val[24];
   int y = kListTopY;
-  chrome.paint_text(4, y, h.mac, 2, TFT_WHITE, TFT_BLACK);
-  y += 20;
-  snprintf(buf, sizeof(buf), "%s  %s", h.kind, h.method);
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
-  snprintf(buf, sizeof(buf), "RSSI: %d dBm", h.rssi);
-  chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-  y += 14;
+  tft.fillRect(0, y, kAccentW, 20, kFlock);
+  chrome.paint_text(4 + kAccentW, y + 2, h.mac, kFontMac, kText, kBg);
+  y += 22;
+  chrome.paint_divider(y);
+  y += 4;
+  chrome.paint_section_label(y, "SIGNAL");
+  y += kSectionH + 2;
+  chrome.paint_field(y, "Kind", h.kind);
+  y += kFieldH;
+  chrome.paint_field(y, "Method", h.method);
+  y += kFieldH;
+  snprintf(val, sizeof(val), "%d dBm", h.rssi);
+  chrome.paint_field(y, "RSSI", val);
+  y += kFieldH;
   if (h.has_channel) {
-    snprintf(buf, sizeof(buf), "Channel: %u", (unsigned)h.channel);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
+    snprintf(val, sizeof(val), "%u", (unsigned)h.channel);
+    chrome.paint_field(y, "Channel", val);
+    y += kFieldH;
   }
   if (h.has_name && h.name[0]) {
-    snprintf(buf, sizeof(buf), "Name: %s", h.name);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
+    chrome.paint_field(y, "Name", h.name);
+    y += kFieldH;
   }
   if (h.has_mfgrid) {
-    snprintf(buf, sizeof(buf), "Mfgrid: %u", (unsigned)h.mfgrid);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
-    y += 14;
+    snprintf(val, sizeof(val), "%u", (unsigned)h.mfgrid);
+    chrome.paint_field(y, "Mfgrid", val);
+    y += kFieldH;
   }
-  snprintf(buf, sizeof(buf), "%u / %u", (unsigned)(s_list_sel + 1),
+  snprintf(val, sizeof(val), "%u / %u", (unsigned)(s_list_sel + 1),
            (unsigned)s_hit_count);
-  chrome.paint_text(4, y + 4, buf, 1, TFT_WHITE, TFT_BLACK);
-  chrome.paint_footer("s list  j/k hit  h help");
+  chrome.paint_field(y, "Index", val);
   s_paint_detail_sel = s_list_sel;
   s_paint_detail_mode = mode;
 }
@@ -604,28 +769,34 @@ void paint_help(bool force) {
   if (s_help_painted && !force) return;
   chrome.clear_body();
   const char *lines[] = {
-      "s       status / wardrive",
-      "l a     jump to hits / nearby",
-      "f       SD card diagnostics",
-      "d ret   detail for selection",
-      "h       this screen",
-      "j k     next/prev page (status) or scroll",
-      "g G     last / first hit",
-      "space   next page",
-      "+ -     screen brightness",
-      "Ball    L/R prev/next page",
-      "        U/D scroll list",
+      "NAVIGATION",
+      "  L/R     prev / next page",
+      "  U/D     scroll (lists)",
+      "  click   select / detail",
+      "  space   next page",
+      "KEYS",
+      "  s       status",
+      "  l n     hits / nearby",
+      "  f       SD diagnostics",
+      "  d       detail",
+      "  h Esc   help",
+      "  j k     page / scroll list",
+      "  g G     last / first row",
+      "  + -     brightness",
       nullptr,
   };
   int y = kListTopY;
   for (int i = 0; lines[i]; i++) {
-    chrome.paint_text(4, y, lines[i], 1, TFT_WHITE, TFT_BLACK);
-    y += 12;
+    const bool section = lines[i][0] != ' ';
+    chrome.paint_text(4, y, lines[i], kFontLabel,
+                      section ? kAccent : kText, kBg);
+    y += section ? 14 : 12;
   }
-  draw_boot_icon(tft, 4, y + 2, TFT_CYAN, TFT_BLACK);
-  chrome.paint_text(22, y + 4, "click = detail / select", 1, TFT_WHITE,
-                    TFT_BLACK);
-  chrome.paint_footer("h or Esc to close");
+  chrome.paint_divider(y + 2);
+  y += 8;
+  draw_boot_icon(tft, 4, y, kAccent, kBg);
+  chrome.paint_text(22, y + 2, "trackball click = select", kFontLabel, kTextMuted,
+                    kBg);
   s_help_painted = true;
 }
 
@@ -814,6 +985,31 @@ void cycle_screen() {
   goto_screen(Screen::kStatus);
 }
 
+void paint_screen_soft_keys() {
+  switch (s_screen) {
+  case Screen::kStatus:
+    chrome.paint_soft_keys("List", 'l', "Help", 'h', "Nearby", 'n');
+    break;
+  case Screen::kList:
+    chrome.paint_soft_keys("Status", 's', "Detail", 'd', "Nearby", 'n');
+    break;
+  case Screen::kNearby:
+    chrome.paint_soft_keys("List", 'l', "Detail", 'd', "Status", 's');
+    break;
+  case Screen::kDetail:
+    chrome.paint_soft_keys("Back", 0, "", 0, "Help", 'h');
+    break;
+  case Screen::kHelp:
+    chrome.paint_soft_keys("", 0, "Close", 'h', "", 0);
+    break;
+  case Screen::kSd:
+    chrome.paint_soft_keys("", 0, "Status", 's', "Retry", 'r');
+    break;
+  default:
+    break;
+  }
+}
+
 void redraw() {
   if (!s_ok) return;
   spi_bus_idle();
@@ -825,11 +1021,14 @@ void redraw() {
     s_painted = s_screen;
   }
 
-  chrome.paint_header(screen_title(s_screen), s_bat_mv, s_bat_usb, screen_changed);
+  const int hdr_page = is_carousel(s_screen) ? carousel_index(s_screen) : -1;
+  chrome.paint_header(screen_title(s_screen), hdr_page, s_bat_mv, s_bat_usb,
+                      screen_changed);
   screen_painter(s_screen)(screen_changed);
   if (is_carousel(s_screen)) {
     chrome.paint_page_dots(kCarouselPages, (size_t)carousel_index(s_screen));
   }
+  paint_screen_soft_keys();
 
   s_last_draw = millis();
   s_dirty = false;
@@ -867,8 +1066,10 @@ void poll_trackball() {
       }
       break;
     case 1:
-      if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
-          s_screen == Screen::kNearby) {
+      if (s_screen == Screen::kStatus) {
+        scroll_status(-1);
+      } else if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
+                 s_screen == Screen::kNearby) {
         list_move(-1);
       }
       break;
@@ -884,8 +1085,10 @@ void poll_trackball() {
       }
       break;
     case 3:
-      if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
-          s_screen == Screen::kNearby) {
+      if (s_screen == Screen::kStatus) {
+        scroll_status(1);
+      } else if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
+                 s_screen == Screen::kNearby) {
         list_move(1);
       }
       break;
@@ -940,7 +1143,7 @@ void handle_key(char key) {
     goto_screen(Screen::kList);
     return;
   }
-  if (key == 'a' || key == 'A') {
+  if (key == 'n' || key == 'N') {
     goto_screen(Screen::kNearby);
     return;
   }
@@ -1107,13 +1310,14 @@ void tdeck_ui_begin() {
 
   tft.begin();
   tft.setRotation(1);
-  tft.fillScreen(TFT_BLACK);
+  tft.fillScreen(kBg);
 
-  draw_boot_icon(tft, tft.width() / 2 - 8, 72, TFT_CYAN, TFT_BLACK);
-  chrome.paint_header("flockdar", 0, false, true);
+  draw_flockdar_logo(tft, tft.width() / 2 - 7, 72, kFlock, kBg);
+  chrome.paint_header("FLOCKDAR", -1, 0, false, true);
+  tft.drawFastHLine(tft.width() / 2 - 40, 88, 80, kAccent);
   tft.setTextDatum(MC_DATUM);
-  tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.drawString("Wardrive starting...", tft.width() / 2, 96, 1);
+  tft.setTextColor(kTextMuted, kBg);
+  tft.drawString("WARDRIVE STARTING", tft.width() / 2, 100, kFontLabel);
   tft.setTextDatum(TL_DATUM);
 
   pinMode(TDECK_BL_PIN, OUTPUT);
