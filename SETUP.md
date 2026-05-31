@@ -56,7 +56,7 @@ library automatically on first build.
 PlatformIO is a Python package; install it with `uv` (or `pipx`):
 
 ```bash
-uv tool install platformio --with pip   # pip required for tool-esptoolpy
+uv tool install platformio --with pip   # pip required for tool-esptoolpy; gives you `pio` everywhere
 # or: pipx install platformio
 # or: VS Code -> Extensions -> "PlatformIO IDE"
 ```
@@ -95,6 +95,63 @@ pio run -e esp32-s3-full -t upload     # + OLED + GPS + microSD
 
 Set the HMAC key shared with the Python receiver before field use — edit the
 `-DFD_HMAC_KEY=...` flag in `esp32/platformio.ini`.
+
+### LilyGO T-Deck / T-Deck Plus (`env:t-deck`)
+
+```bash
+uv run esp32/gen_oui_header.py
+cd esp32 && pio run -e t-deck -t upload
+```
+
+#### Will this permanently damage the device?
+
+**No — not in normal use.** Flashing flockdar is the same class of operation as
+flashing Meshtastic or the LilyGO factory examples: PlatformIO writes a new
+**application** image over USB. It does **not**:
+
+- erase the whole chip (`erase_flash`) unless you run that yourself
+- change eFuses or enable flash encryption
+- flash the separate **keyboard MCU** (ESP32-C3) — only the main ESP32-S3 is updated
+- reformat your microSD (it only appends `/flock-NNNN.ndjson` log files)
+
+The realistic worst case is a **soft brick** (blank screen, no USB serial) until
+you flash again — usually fixable with download mode + `pio run -t upload` or a
+[Meshtastic](https://meshtastic.org/docs/getting-started/flashing-firmware/) /
+LilyGO `.bin` from [T-Deck releases](https://github.com/Xinyuan-LilyGO/T-Deck).
+
+**Before you flash (recommended):**
+
+1. Flash over **USB with the power switch ON** (battery + USB is fine; avoid
+   unplugging mid-write).
+2. Use only **`pio run -e t-deck -t upload`** — do **not** run `erase`,
+   `erase_flash`, or `pio run -t erase` unless you intend a full wipe.
+3. Keep a recovery image handy (Meshtastic `firmware-t-deck-*-update.bin` or LilyGO
+   factory build) if you want to go back.
+4. If upload is unreliable on Windows, slow the port in `esp32/platformio.ini`:
+   `upload_speed = 460800` under `[env:t-deck]`.
+
+flockdar does not drive the LoRa radio for TX; it only scans WiFi/BLE and uses
+the display, GPS, SD, and keyboard — all within the same pin map LilyGO documents.
+
+#### Entering upload (download) mode
+
+The T-Deck often **auto-resets** into the bootloader when `pio upload` starts.
+If upload fails with “Failed to connect” or no serial port:
+
+1. Connect **USB-C** to the PC.
+2. Flip the **power switch ON**.
+3. **Hold the center of the trackball** (boot strap — same as “BOOT” on other boards).
+4. While holding, press the **RESET** button (left side; not the power switch).
+5. Release **RESET**, then release the **trackball**.
+6. Run `pio run -e t-deck -t upload` within a few seconds.
+
+Alternative ([LilyGO T-Deck README](https://github.com/Xinyuan-LilyGO/T-Deck)):
+hold trackball center, plug in USB, then upload.
+
+After a successful flash, press **RESET** once if the screen stays black.
+
+On Windows, confirm the port with `pio device list`. ESP32-S3 native USB usually
+needs no extra driver on Win10+.
 
 ---
 
