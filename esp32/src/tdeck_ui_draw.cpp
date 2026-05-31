@@ -118,12 +118,33 @@ void TdeckChrome::paint_footer(const char *text) {
   tft_.setTextColor(TFT_WHITE, TFT_BLACK);
 }
 
+void TdeckChrome::paint_page_dots(size_t count, size_t active) {
+  if (count == 0) return;
+  constexpr int kDotY = 22;  // px above screen bottom
+  constexpr int kGap = 10;
+  const int y = tft_.height() - kDotY;
+  const int active_r = 3;
+  const int idle_r = 2;
+  const int step = active_r * 2 + kGap;
+  const int total_w = (int)count * step - kGap;
+  int x = (tft_.width() - total_w) / 2 + active_r;
+  tft_.fillRect(0, y - active_r - 1, tft_.width(), active_r * 2 + 3, TFT_BLACK);
+  for (size_t i = 0; i < count; i++) {
+    if (i == active) {
+      tft_.fillCircle(x, y, active_r, TFT_WHITE);
+    } else {
+      tft_.drawCircle(x, y, idle_r, TFT_DARKGREY);
+    }
+    x += step;
+  }
+}
+
 void TdeckChrome::paint_scroll_list(size_t count, size_t *sel, size_t *paint_sel,
                                     size_t *paint_start, size_t *paint_count,
                                     ScrollRowFn row_fn, const char *footer,
                                     int top_y, bool force) {
   constexpr int row_h = 36;
-  const int visible = (tft_.height() - top_y - 18) / row_h;
+  const int visible = (tft_.height() - top_y - 30) / row_h;
 
   if (count == 0) {
     if (force) {
@@ -194,7 +215,7 @@ void TdeckChrome::paint_icon_scroll_list(
   constexpr int row_h = 36;
   constexpr int icon_x = 4;
   constexpr int text_x = 22;
-  const int visible = (tft_.height() - top_y - 18) / row_h;
+  const int visible = (tft_.height() - top_y - 30) / row_h;
 
   if (count == 0) {
     if (force) {
