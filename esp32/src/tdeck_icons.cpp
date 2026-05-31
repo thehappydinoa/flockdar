@@ -161,6 +161,65 @@ void draw_boot_icon(TFT_eSPI &tft, int x, int y, uint16_t fg, uint16_t bg) {
   tft.drawLine(x + 8, y + 1, x + 8, y + 5, fg);
 }
 
+void draw_flockdar_logo(TFT_eSPI &tft, int x, int y, uint16_t fg, uint16_t bg) {
+  draw_dev_icon(tft, DevIcon::kCamera, x, y, fg, bg);
+}
+
+void draw_status_icon(TFT_eSPI &tft, StatusIcon icon, int x, int y, uint16_t fg,
+                      uint16_t bg) {
+  // 12×12 glyph centered in the 14×14 status field cell.
+  const int ox = x + 1;
+  const int oy = y + 1;
+
+  switch (icon) {
+  case StatusIcon::kFlock:
+    tft.fillRect(x, y, 14, 14, bg);
+    tft.fillRect(ox + 4, oy + 1, 4, 2, fg);
+    tft.fillRoundRect(ox + 1, oy + 3, 10, 7, 1, fg);
+    tft.drawCircle(ox + 6, oy + 6, 2, bg);
+    return;
+  case StatusIcon::kWifi:
+    tft.fillRect(x, y, 14, 14, bg);
+    tft.drawFastHLine(ox + 2, oy + 9, 8, fg);
+    tft.drawPixel(ox + 5, oy + 8, fg);
+    tft.drawPixel(ox + 6, oy + 8, fg);
+    tft.drawCircle(ox + 6, oy + 6, 4, fg);
+    tft.drawCircle(ox + 6, oy + 6, 1, bg);
+    return;
+  case StatusIcon::kBle:
+    tft.fillRect(x, y, 14, 14, bg);
+    tft.drawFastVLine(ox + 4, oy + 2, 8, fg);
+    tft.fillTriangle(ox + 4, oy + 2, ox + 8, oy + 4, ox + 4, oy + 6, fg);
+    tft.fillTriangle(ox + 4, oy + 6, ox + 8, oy + 8, ox + 4, oy + 10, fg);
+    tft.fillTriangle(ox + 4, oy + 2, ox + 6, oy + 4, ox + 4, oy + 6, bg);
+    tft.fillTriangle(ox + 4, oy + 6, ox + 6, oy + 8, ox + 4, oy + 10, bg);
+    return;
+  case StatusIcon::kChannel:
+    tft.fillRect(x, y, 14, 14, bg);
+    tft.fillRoundRect(ox + 1, oy + 5, 10, 5, 1, fg);
+    tft.drawFastVLine(ox + 3, oy + 2, 3, fg);
+    tft.drawFastVLine(ox + 6, oy + 1, 4, fg);
+    tft.drawFastVLine(ox + 9, oy + 2, 3, fg);
+    return;
+  case StatusIcon::kGps:
+    tft.fillRect(x, y, 14, 14, bg);
+    tft.drawCircle(ox + 6, oy + 6, 5, fg);
+    tft.drawFastHLine(ox + 3, oy + 6, 7, fg);
+    tft.drawFastVLine(ox + 6, oy + 3, 7, fg);
+    tft.fillCircle(ox + 6, oy + 6, 1, fg);
+    return;
+  case StatusIcon::kSd:
+    tft.fillRect(x, y, 14, 14, bg);
+    tft.fillRoundRect(ox + 2, oy + 1, 8, 10, 1, fg);
+    tft.fillTriangle(ox + 2, oy + 1, ox + 5, oy + 1, ox + 2, oy + 4, bg);
+    tft.drawFastHLine(ox + 3, oy + 6, 6, bg);
+    return;
+  default:
+    tft.fillRect(x, y, 14, 14, bg);
+    break;
+  }
+}
+
 void draw_dev_icon(TFT_eSPI &tft, DevIcon icon, int x, int y, uint16_t fg,
                    uint16_t bg) {
   tft.fillRect(x, y, 14, 14, bg);
