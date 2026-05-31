@@ -6,79 +6,111 @@
 
 #include "match.h"
 #include "protocol.h"
+#include "rf_sightings.h"
 
-// "aa:bb:cc:dd:ee:ff" -> 6 bytes. Returns false on malformed input.
-static bool parse_mac(const char *s, uint8_t out[6]) {
-  for (int i = 0; i < 6; i++) {
-    char *end = nullptr;
-    long v = strtol(s, &end, 16);
-    if (end == s || v < 0 || v > 0xFF) return false;
-    out[i] = (uint8_t)v;
-    s = end;
-    if (i < 5) {
-      if (*s != ':') return false;
-      s++;
-    }
-  }
-  return true;
-}
+namespace {
 
 static volatile uint32_t s_ble_adverts = 0;
+
+// Parse BLE AD structures without std::string / heap churn in the scan callback.
+static bool ad_walk(const uint8_t *payload, size_t len,
+                    bool (*fn)(uint8_t type, const uint8_t *data, uint8_t data_len,
+                               void *ctx),
+                    void *ctx) {
+  size_t off = 0;
+  while (off + 1 < len) {
+    const uint8_t field_len = payload[off];
+    if (field_len == 0 || off + field_len >= len) break;
+    const uint8_t type = payload[off + 1];
+    const uint8_t *data = &payload[off + 2];
+    const uint8_t data_len = field_len - 1;
+    if (fn(type, data, data_len, ctx)) return true;
+    off += field_len + 1;
+  }
+  return false;
+}
+
+struct BleParseCtx {
+  Detection *d;
+  bool flock;
+};
+
+static bool ble_ad_parse(uint8_t type, const uint8_t *data, uint8_t data_len,
+                         void *ctx) {
+  auto *c = static_cast<BleParseCtx *>(ctx);
+  Detection &d = *c->d;
+
+  if ((type == 0x08 || type == 0x09) && data_len > 0 && !d.has_name) {
+    size_t n = data_len;
+    if (n >= sizeof(d.name)) n = sizeof(d.name) - 1;
+    memcpy(d.name, data, n);
+    d.name[n] = '\0';
+    d.has_name = d.name[0] != '\0';
+    if (!c->flock && d.has_name && ble_name_match(d.name)) {
+      strncpy(d.method, "name_match", sizeof(d.method) - 1);
+      c->flock = true;
+    }
+    return false;
+  }
+
+  if (type == 0xFF && data_len >= 2 && !c->flock) {
+    const uint16_t cid =
+        (uint16_t)data[0] | ((uint16_t)data[1] << 8);
+    if (mfgrid_is_flock(cid)) {
+      d.mfgrid = cid;
+      d.has_mfgrid = true;
+      strncpy(d.method, "mfgrid", sizeof(d.method) - 1);
+      c->flock = true;
+    }
+  }
+  return false;
+}
 
 class FlockScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice *dev) override {
     s_ble_adverts++;
-    if (!g_det_queue) return;
 
     Detection d;
     det_init(d, DET_BLE);
     d.ts_ms = millis();
     d.rssi = dev->getRSSI();
     d.has_rssi = true;
-    d.has_mac = parse_mac(dev->getAddress().toString().c_str(), d.mac);
 
-    if (dev->haveName()) {
-      strncpy(d.name, dev->getName().c_str(), sizeof(d.name) - 1);
-      d.has_name = d.name[0] != '\0';
+    const uint8_t *mac = dev->getAddress().getNative();
+    if (mac) {
+      memcpy(d.mac, mac, 6);
+      d.has_mac = true;
     }
 
-    // Manufacturer ID: first two bytes of manufacturer-specific data,
-    // little-endian. mfgrid 2504 catches Penguin devices even when they drop
-    // the "Penguin-" name prefix.
-    bool flock = false;
-    if (dev->haveManufacturerData()) {
-      std::string md = dev->getManufacturerData();
-      if (md.size() >= 2) {
-        uint16_t cid = (uint8_t)md[0] | ((uint16_t)(uint8_t)md[1] << 8);
-        if (mfgrid_is_flock(cid)) {
-          d.mfgrid = cid;
-          d.has_mfgrid = true;
-          strncpy(d.method, "mfgrid", sizeof(d.method) - 1);
-          flock = true;
-        }
-      }
+    uint8_t *payload = dev->getPayload();
+    const size_t pay_len = dev->getPayloadLength();
+    BleParseCtx ctx{&d, false};
+    if (payload && pay_len > 0) {
+      ad_walk(payload, pay_len, ble_ad_parse, &ctx);
     }
 
-    // Name match (FS Ext Battery, flock, pigvision, ...) when not already
-    // identified by manufacturer ID.
-    if (!flock && d.has_name && ble_name_match(d.name)) {
-      strncpy(d.method, "name_match", sizeof(d.method) - 1);
-      flock = true;
+    if (d.has_mac) {
+      rf_sightings_note_ble(d.mac, d.has_name ? d.name : nullptr, d.rssi);
     }
 
-    if (flock && d.has_mac) xQueueSend(g_det_queue, &d, 0);
+    if (!g_det_queue || !ctx.flock || !d.has_mac) return;
+    xQueueSend(g_det_queue, &d, 0);
   }
 };
+
+FlockScanCallbacks s_ble_cb;
+
+}  // namespace
 
 void ble_scanner_begin() {
   NimBLEDevice::init("");
   NimBLEScan *scan = NimBLEDevice::getScan();
-  scan->setAdvertisedDeviceCallbacks(new FlockScanCallbacks(), /*wantDup=*/false);
-  scan->setActiveScan(false);  // passive — don't send scan requests
+  scan->setAdvertisedDeviceCallbacks(&s_ble_cb, /*wantDup=*/false);
+  scan->setActiveScan(false);
   scan->setInterval(100);
   scan->setWindow(99);
-  scan->setMaxResults(0);  // callback-only, don't buffer results
-  scan->start(0, nullptr, false);  // scan forever
+  scan->setMaxResults(0);
+  scan->start(0, nullptr, false);
 }
 
 uint32_t ble_scanner_adverts() { return s_ble_adverts; }

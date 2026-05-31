@@ -35,9 +35,16 @@ static bool tdeck_l76k_init() {
     if (!s_serial.available()) {
       continue;
     }
-    s_serial.setTimeout(50);
-    String ver = s_serial.readStringUntil('\n');
-    if (ver.startsWith("$GPTXT,01,01,02")) {
+    char ver[64];
+    size_t n = 0;
+    while (s_serial.available() && n + 1 < sizeof(ver)) {
+      int c = s_serial.read();
+      if (c < 0) break;
+      if (c == '\n') break;
+      ver[n++] = (char)c;
+    }
+    ver[n] = '\0';
+    if (strncmp(ver, "$GPTXT,01,01,02", 15) == 0) {
       s_serial.write("$PCAS04,5*1C\r\n");
       delay(100);
       s_serial.write("$PCAS03,1,1,1,1,1,1,1,1,1,1,,,0,0*02\r\n");
