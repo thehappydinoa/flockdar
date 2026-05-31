@@ -50,6 +50,8 @@ constexpr int kSdY = 104;
 constexpr int kLastY = 132;
 constexpr int kFootY = 212;
 
+constexpr size_t kCarouselPages = 3;
+
 struct HitLine {
   char mac[18];
   char kind[5];
@@ -246,9 +248,9 @@ void poll_battery() {
 
 void paint_status_static() {
   chrome.paint_text(4, kStatY, "Status", 2, TFT_WHITE, TFT_BLACK);
-  chrome.paint_footer("h help  l list  a nearby");
+  chrome.paint_footer("L/R pages  h help  f SD");
   tft.setTextColor(TFT_DARKGREY, TFT_BLACK);
-  tft.drawString("f SD info  d detail  space", 4, kFootY + 12);
+  tft.drawString("click hits  d detail", 4, kFootY + 12);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   s_status_static = true;
 }
@@ -404,7 +406,7 @@ void nearby_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
 
 void paint_list(bool force) {
   char footer[32];
-  snprintf(footer, sizeof(footer), "%u/%u  d detail",
+  snprintf(footer, sizeof(footer), "%u/%u  d detail  L/R",
            s_hit_count ? (unsigned)(s_list_sel + 1) : 0U,
            (unsigned)s_hit_count);
   chrome.paint_scroll_list(s_hit_count, &s_list_sel, &s_paint_list_sel,
@@ -415,7 +417,7 @@ void paint_list(bool force) {
 void paint_nearby(bool force) {
   const size_t count = rf_sightings_count();
   char footer[40];
-  snprintf(footer, sizeof(footer), "%u uniq  d detail  j/k",
+  snprintf(footer, sizeof(footer), "%u uniq  d detail  L/R",
            (unsigned)count);
   chrome.paint_icon_scroll_list(count, &s_nearby_sel, &s_paint_nearby_sel,
                                 &s_paint_nearby_start, &s_paint_nearby_count,
@@ -603,16 +605,15 @@ void paint_help(bool force) {
   chrome.clear_body();
   const char *lines[] = {
       "s       status / wardrive",
-      "l       Flock hit list",
-      "a       all nearby devices",
+      "l a     jump to hits / nearby",
       "f       SD card diagnostics",
       "d ret   detail for selection",
       "h       this screen",
-      "j k     list down / up",
+      "j k     next/prev page (status) or scroll",
       "g G     last / first hit",
-      "space   cycle status/list",
+      "space   next page",
       "+ -     screen brightness",
-      "Ball    L/R change screen",
+      "Ball    L/R prev/next page",
       "        U/D scroll list",
       nullptr,
   };
@@ -721,6 +722,47 @@ void goto_screen(Screen sc) {
   s_dirty = true;
 }
 
+bool is_carousel(Screen s) {
+  return s == Screen::kStatus || s == Screen::kList || s == Screen::kNearby;
+}
+
+int carousel_index(Screen s) {
+  switch (s) {
+  case Screen::kStatus:
+    return 0;
+  case Screen::kList:
+    return 1;
+  case Screen::kNearby:
+    return 2;
+  default:
+    return -1;
+  }
+}
+
+Screen carousel_screen(int idx) {
+  idx = (idx % (int)kCarouselPages + (int)kCarouselPages) % (int)kCarouselPages;
+  switch (idx) {
+  case 1:
+    return Screen::kList;
+  case 2:
+    return Screen::kNearby;
+  default:
+    return Screen::kStatus;
+  }
+}
+
+void goto_carousel_page(int idx) { goto_screen(carousel_screen(idx)); }
+
+void carousel_next() {
+  if (!is_carousel(s_screen)) return;
+  goto_carousel_page(carousel_index(s_screen) + 1);
+}
+
+void carousel_prev() {
+  if (!is_carousel(s_screen)) return;
+  goto_carousel_page(carousel_index(s_screen) - 1);
+}
+
 void open_detail() {
   if (s_screen == Screen::kNearby) {
     if (rf_sightings_count() == 0) return;
@@ -761,15 +803,15 @@ void leave_help() {
 }
 
 void cycle_screen() {
-  if (s_screen == Screen::kStatus) {
-    goto_screen(Screen::kList);
-  } else if (s_screen == Screen::kList) {
-    goto_screen(Screen::kStatus);
-  } else if (s_screen == Screen::kHelp) {
+  if (s_screen == Screen::kHelp) {
     leave_help();
-  } else {
-    goto_screen(Screen::kList);
+    return;
   }
+  if (is_carousel(s_screen)) {
+    carousel_next();
+    return;
+  }
+  goto_screen(Screen::kStatus);
 }
 
 void redraw() {
@@ -785,6 +827,9 @@ void redraw() {
 
   chrome.paint_header(screen_title(s_screen), s_bat_mv, s_bat_usb, screen_changed);
   screen_painter(s_screen)(screen_changed);
+  if (is_carousel(s_screen)) {
+    chrome.paint_page_dots(kCarouselPages, (size_t)carousel_index(s_screen));
+  }
 
   s_last_draw = millis();
   s_dirty = false;
@@ -815,8 +860,8 @@ void poll_trackball() {
 
     switch (i) {
     case 0:
-      if (s_screen == Screen::kStatus) {
-        goto_screen(Screen::kList);
+      if (is_carousel(s_screen)) {
+        carousel_next();
       } else if (s_screen == Screen::kDetail) {
         goto_screen(s_detail_return);
       }
@@ -828,15 +873,14 @@ void poll_trackball() {
       }
       break;
     case 2:
-      if (s_screen == Screen::kList ||
-          (s_screen == Screen::kDetail &&
-           s_detail_source == DetailSource::kFlock)) {
+      if (is_carousel(s_screen)) {
+        carousel_prev();
+      } else if (s_screen == Screen::kDetail &&
+                 s_detail_source == DetailSource::kFlock) {
         goto_screen(Screen::kStatus);
       } else if (s_screen == Screen::kDetail &&
                  s_detail_source == DetailSource::kNearby) {
         goto_screen(Screen::kNearby);
-      } else if (s_screen == Screen::kStatus) {
-        show_help();
       }
       break;
     case 3:
@@ -846,12 +890,12 @@ void poll_trackball() {
       }
       break;
     case 4:
-      if (s_screen == Screen::kStatus) {
-        goto_screen(Screen::kList);
-      } else if (s_screen == Screen::kList) {
-        open_detail();
-      } else if (s_screen == Screen::kNearby) {
-        open_detail();
+      if (is_carousel(s_screen)) {
+        if (s_screen == Screen::kStatus) {
+          goto_screen(Screen::kList);
+        } else {
+          open_detail();
+        }
       } else if (s_screen == Screen::kDetail) {
         goto_screen(s_detail_return);
       }
@@ -927,22 +971,16 @@ void handle_key(char key) {
   }
   if (key == 'j' || key == 'J') {
     if (s_screen == Screen::kStatus) {
-      if (s_hit_count > 0) {
-        goto_screen(Screen::kList);
-      } else if (rf_sightings_count() > 0) {
-        goto_screen(Screen::kNearby);
-      }
+      carousel_next();
+      return;
     }
     scroll_list(1);
     return;
   }
   if (key == 'k' || key == 'K' || key == '\b' || key == 127) {
     if (s_screen == Screen::kStatus) {
-      if (s_hit_count > 0) {
-        goto_screen(Screen::kList);
-      } else if (rf_sightings_count() > 0) {
-        goto_screen(Screen::kNearby);
-      }
+      carousel_prev();
+      return;
     }
     scroll_list(-1);
     return;

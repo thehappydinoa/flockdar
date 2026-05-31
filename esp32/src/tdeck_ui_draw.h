@@ -21,6 +21,8 @@ class TdeckChrome {
                   uint16_t fg, uint16_t bg);
   void clear_body();
   void paint_footer(const char *text);
+  // iOS-style page dots for the Status / Hits / Nearby carousel (bottom center).
+  void paint_page_dots(size_t count, size_t active);
   void invalidate_header();
 
   // Scrollable two-line list (shared by Flock hits and nearby RF lists).
