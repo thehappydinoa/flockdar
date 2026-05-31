@@ -118,6 +118,18 @@ class Board:
 
 BOARDS: list[Board] = [
     Board(
+        key="T-Deck",
+        board_id="esp32-s3-devkitc-1",
+        chip="esp32s3",
+        target_macro="FD_BOARD_TDECK",
+        gps_uart=1,
+        pins={
+            "OLED_SDA": 7, "OLED_SCL": 21,
+            "SD_CS": 39, "SD_SCK": 40, "SD_MISO": 38, "SD_MOSI": 41,
+            "GPS_RX": 44, "GPS_TX": 43,
+        },
+    ),
+    Board(
         key="ESP32-S3",
         board_id="esp32-s3-devkitc-1",
         chip="esp32s3",

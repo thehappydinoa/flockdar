@@ -1,6 +1,13 @@
 #include "display.h"
 
-#ifdef FD_ENABLE_OLED
+#ifdef FD_ENABLE_TDECK_UI
+#include "tdeck_ui.h"
+
+void display_begin() { tdeck_ui_begin(); }
+void display_note(const Detection &d) { tdeck_ui_note(d); }
+void display_loop() { tdeck_ui_loop(); }
+
+#elif defined(FD_ENABLE_OLED)
 
 #include <Adafruit_GFX.h>
 #include <Adafruit_SSD1306.h>

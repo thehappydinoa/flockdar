@@ -30,7 +30,8 @@
 // hopping the 2.4 GHz primaries. Leave undefined to hop 1 -> 6 -> 11.
 
 // --- Optional peripherals --------------------------------------------------
-// Enable with -DFD_ENABLE_OLED / -DFD_ENABLE_GPS (see env:esp32-s3-full).
+// Enable with -DFD_ENABLE_OLED / -DFD_ENABLE_TDECK_UI / -DFD_ENABLE_GPS
+// (see env:esp32-s3-full, env:t-deck).
 
 #ifdef FD_ENABLE_OLED
 #ifndef FD_OLED_ADDR
