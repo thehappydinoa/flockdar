@@ -56,12 +56,17 @@ coordinates.
 Newline-delimited JSON at 115200 baud. Each line is one event.
 
 ```json
-{"v":1,"type":"wifi","method":"probe_request","mac":"70:c9:4e:79:e7:66","rssi":-72,"channel":6,"oui":"70:c9:4e","ts_ms":1234567890,"sig":"a3f2..."}
+{"v":1,"type":"wifi","method":"probe_request","mac":"70:c9:4e:79:e7:66","rssi":-72,"channel":6,"oui":"70:c9:4e","lat":39.941600,"lon":-75.175800,"accuracy":3.1,"ts_ms":1234567890,"sig":"a3f2..."}
 {"v":1,"type":"wifi","method":"addr1","mac":"d8:f3:bc:7d:c1:a9","rssi":-68,"channel":11,"ts_ms":1234567891,"sig":"b81c..."}
-{"v":1,"type":"ble","method":"name_match","mac":"04:0d:84:2b:c2:a4","name":"FS Ext Battery","rssi":-85,"ts_ms":1234567892,"sig":"c940..."}
+{"v":1,"type":"ble","method":"name_match","mac":"04:0d:84:2b:c2:a4","name":"FS Ext Battery","rssi":-85,"lat":39.941600,"lon":-75.175800,"accuracy":3.1,"ts_ms":1234567892,"sig":"c940..."}
 {"v":1,"type":"ble","method":"mfgrid","mac":"d4:b2:73:d1:ef:3d","name":"1069698414","mfgrid":2504,"rssi":-90,"ts_ms":1234567893,"sig":"d12e..."}
 {"v":1,"type":"gps","lat":39.9416,"lon":-75.1758,"alt":12.3,"accuracy":3.1,"ts_ms":1234567894}
 ```
+
+When GPS has a fix, `wifi` and `ble` lines include `lat`, `lon`, and (when
+available) `accuracy` stamped at emit time. Lines emitted before the first fix
+omit those fields; ingest still accepts standalone `gps` lines to backfill
+position for older logs.
 
 Fields:
 
@@ -76,6 +81,10 @@ Fields:
 | `oui` | First 3 octets of MAC |
 | `name` | BLE advertisement name |
 | `mfgrid` | BLE manufacturer ID (decimal) |
+| `lat` | WGS84 latitude (wifi/ble, when GPS fix at capture) |
+| `lon` | WGS84 longitude (wifi/ble, when GPS fix at capture) |
+| `accuracy` | Horizontal accuracy in metres (wifi/ble, optional) |
+| `alt` | Altitude in metres (`gps` lines only) |
 | `ts_ms` | Device milliseconds since boot |
 | `sig` | HMAC-SHA256 truncated to 8 hex chars (excludes `sig` field itself) |
 

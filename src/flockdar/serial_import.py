@@ -20,7 +20,9 @@ works too.)
 
 The firmware signs `wifi`/`ble` lines with HMAC-SHA256 (see esp32/README.md);
 this module verifies them with the shared key before trusting a detection.
-`gps` lines update the current position that subsequent detections inherit.
+`gps` lines update the running position that subsequent detections inherit.
+Wifi/ble lines may also carry inline `lat`/`lon`/`accuracy` when stamped at
+capture time (preferred over the running GPS position).
 """
 
 from __future__ import annotations
@@ -97,10 +99,19 @@ def line_to_record(obj: dict[str, Any], pos: dict[str, float]) -> tuple[Record, 
     if not mac:
         return None
 
+    if "lat" in obj:
+        lat = float(obj.get("lat", 0.0) or 0.0)
+    else:
+        lat = pos.get("lat", 0.0)
+    if "lon" in obj:
+        lon = float(obj.get("lon", 0.0) or 0.0)
+    else:
+        lon = pos.get("lon", 0.0)
+
     base: Record = {
         "mac": mac,
-        "lat": pos.get("lat", 0.0),
-        "lon": pos.get("lon", 0.0),
+        "lat": lat,
+        "lon": lon,
         "rssi": int(obj.get("rssi", 0) or 0),
         "first_seen": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         "services": "",
