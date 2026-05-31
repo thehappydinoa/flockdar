@@ -74,3 +74,43 @@ const char *ble_vendor_name(uint16_t cid) {
       &key, BLE_VENDORS, BLE_VENDOR_COUNT, sizeof(BleVendor), cmp_ble_vendor);
   return hit ? hit->name : nullptr;
 }
+
+bool flock_method_is_probe(const char *method) {
+  return method && strcmp(method, "probe_request") == 0;
+}
+
+const char *flock_method_short(const char *method) {
+  if (!method) return "?";
+  if (strcmp(method, "probe_request") == 0) return "PROBE";
+  if (strcmp(method, "addr2") == 0) return "OUI tx";
+  if (strcmp(method, "addr1") == 0) return "OUI rx";
+  if (strcmp(method, "name_match") == 0) return "BLE name";
+  if (strcmp(method, "mfgrid") == 0) return "mfgrid";
+  return method;
+}
+
+uint8_t flock_det_confidence(const char *kind, const char *method,
+                              const char *name, bool has_name) {
+  if (flock_method_is_probe(method)) return 3;
+  if (method && strcmp(method, "addr2") == 0) return 3;
+  if (method && strcmp(method, "addr1") == 0) return 2;
+  if (method && strcmp(method, "mfgrid") == 0) return 2;
+  if (method && strcmp(method, "name_match") == 0 && has_name && name) {
+    const char *pat = ble_name_match(name);
+    if (pat && ci_strstr(pat, "enguin")) return 3;
+    return 2;
+  }
+  if (kind && strcmp(kind, "ble") == 0) return 2;
+  return 1;
+}
+
+const char *flock_confidence_label(uint8_t level) {
+  switch (level) {
+  case 3:
+    return "HIGH";
+  case 2:
+    return "MED";
+  default:
+    return "LOW";
+  }
+}
