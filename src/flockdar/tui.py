@@ -431,7 +431,7 @@ class FlockDetectApp(App):
         right.mount(DetailPanel(id="detail"))
 
         table = self.query_one("#device-table", DataTable)
-        table.add_columns("", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Lat", "Lon", "Enriched")
+        table.add_columns("", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Lat", "Lon", "Date", "Enriched")
         table.focus()
 
     def _on_data_loaded(self, hits: list[Hit], total: int) -> None:
@@ -518,6 +518,7 @@ class FlockDetectApp(App):
                 f"{c.best_rssi}",
                 f"{c.lat:.4f}" if (c.lat or c.lon) else "—",
                 f"{c.lon:.4f}" if (c.lat or c.lon) else "—",
+                (c.first_seen or "")[:10] or "—",
                 c.enrichment_label(ENRICHMENT_SIGNAL_LABELS),
             )
 
@@ -683,7 +684,7 @@ class FlockDetectApp(App):
             # Find which display row this hit belongs to and update its Enriched cell
             for row_idx, cluster in enumerate(self._display_items):
                 if hit in cluster.hits:
-                    enrich_col = 8  # "Enriched" is column index 8
+                    enrich_col = 9  # "Enriched" is column index 9
                     table.update_cell_at(
                         (row_idx, enrich_col),
                         cluster.enrichment_label(ENRICHMENT_SIGNAL_LABELS),

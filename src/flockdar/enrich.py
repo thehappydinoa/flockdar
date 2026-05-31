@@ -55,7 +55,6 @@ ENRICHMENT_SIGNAL_LABELS: frozenset[str] = frozenset({
     "OSM_ALPR_NEARBY",
     "ALPRWATCH_NEARBY",
     "WIGLE_SEEN",
-    "WIGLE_NOT_FOUND",
 })
 
 _UA = "flock-wigle-detect/1.0"
@@ -384,7 +383,7 @@ class WiGLEEnricher(Enricher):
                     headers={"Authorization": self.__auth_header, "Accept": "application/json"},
                 )
             if resp.status_code == 404:
-                return [("WIGLE_NOT_FOUND", "not in WiGLE DB")]
+                return []
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
         except httpx.HTTPStatusError:
@@ -394,7 +393,7 @@ class WiGLEEnricher(Enricher):
 
         results: list[dict[str, Any]] = data.get("results", [])
         if not results:
-            return [("WIGLE_NOT_FOUND", "no results")]
+            return []
         net = results[0]
         loc: list[dict[str, Any]] = net.get("locationData") or []
         count: Any = loc[0].get("total", "?") if loc else "?"
