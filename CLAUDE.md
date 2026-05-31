@@ -69,8 +69,8 @@ The SQLite `network` table has a single-char `type` field: `W`=WiFi, `E`=BLE, `B
 `Hit.confidence` is derived from signal labels (not stored explicitly):
 
 - **3 HIGH**: `FLOCK_DIRECT_OUI`, `RAVEN_UUID_HIGH`, `FLOCKNET_SSID`, `FLOCK_CAMERA_SSID`, `PENGUIN_BLE_SSID`
-- **2 MEDIUM**: `FLOCK_CAMERA_SSID_PATTERN`, `BLE_NAME`, `BACKHAUL_OUI_HIDDEN`, `FLOCK_WIFI_FP`, `FLOCK_MFGRID`
-- **1 LOW**: `CHIP_OUI`, `SSID_PATTERN`, `RAVEN_UUID_OLD`, `SURVEILLANCE_OUI`
+- **2 MEDIUM**: `FLOCK_CAMERA_SSID_PATTERN`, `BLE_NAME`, `FLOCK_WIFI_FP`, `FLOCK_MFGRID`
+- **1 LOW**: `CHIP_OUI`, `SSID_PATTERN`, `RAVEN_UUID_OLD`, `SURVEILLANCE_OUI`, `BACKHAUL_OUI_HIDDEN`
 
 > **README diagram** — `README.md` has a Mermaid confidence-tier diagram in the **How detection works** section. Update it whenever a signal label is added, removed, or moved to a different tier.
 

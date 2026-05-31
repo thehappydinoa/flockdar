@@ -10,6 +10,7 @@ import gzip
 import sqlite3
 from collections import Counter
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from math import cos, radians, sqrt
 from pathlib import Path
 from typing import Any, Iterator
@@ -47,7 +48,7 @@ class Hit:
         if labels & {"FLOCK_DIRECT_OUI", "RAVEN_UUID_HIGH", "FLOCKNET_SSID",
                      "FLOCK_CAMERA_SSID", "PENGUIN_BLE_SSID"}:
             return 3
-        if labels & {"FLOCK_CAMERA_SSID_PATTERN", "BLE_NAME", "BACKHAUL_OUI_HIDDEN",
+        if labels & {"FLOCK_CAMERA_SSID_PATTERN", "BLE_NAME",
                      "FLOCK_WIFI_FP", "FLOCK_MFGRID"}:
             return 2
         return 1
@@ -102,6 +103,11 @@ class Cluster:
         return max(h.rssi for h in self.hits)
 
     @property
+    def first_seen(self) -> str:
+        dates = [h.first_seen for h in self.hits if h.first_seen]
+        return max(dates) if dates else ""
+
+    @property
     def mac_list(self) -> str:
         return "\n".join(h.mac for h in self.hits)
 
@@ -111,7 +117,6 @@ class Cluster:
             "OSM_ALPR_NEARBY":  "🗺",
             "ALPRWATCH_NEARBY": "📍",
             "WIGLE_SEEN":       "📡",
-            "WIGLE_NOT_FOUND":  "🔍",
         }
         found: list[str] = []
         seen: set[str] = set()
@@ -285,6 +290,19 @@ def analyze(  # noqa: PLR0912 (many branches by design)
 # Readers
 # ---------------------------------------------------------------------------
 
+def _parse_wigle_time(raw) -> str:
+    """Convert WiGLE's lasttime (Unix ms or s integer) to 'YYYY-MM-DD HH:MM:SS' UTC."""
+    if not raw:
+        return ""
+    try:
+        ts = int(raw)
+        if ts > 1e10:  # milliseconds → seconds
+            ts //= 1000
+        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, OSError):
+        return str(raw)
+
+
 def read_sqlite(path: Path) -> Iterator[Record]:
     conn = sqlite3.connect(str(path))
     conn.row_factory = sqlite3.Row
@@ -302,7 +320,7 @@ def read_sqlite(path: Path) -> Iterator[Record]:
                 "rssi":         row["bestlevel"] or 0,
                 "lat":          float(row["bestlat"] or 0),
                 "lon":          float(row["bestlon"] or 0),
-                "first_seen":   str(row["lasttime"] or ""),
+                "first_seen":   _parse_wigle_time(row["lasttime"]),
                 "services":     row["service"] or "",
                 "frequency":    row["frequency"] or 0,
                 "capabilities": row["capabilities"] or "",

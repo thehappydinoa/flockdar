@@ -140,7 +140,6 @@ graph LR
     subgraph MED["MEDIUM — confidence 2"]
         F[FLOCK_CAMERA_SSID_PATTERN]
         G[BLE_NAME]
-        H[BACKHAUL_OUI_HIDDEN]
         I[FLOCK_WIFI_FP]
         J[FLOCK_MFGRID]
     end
@@ -149,6 +148,7 @@ graph LR
         L[SSID_PATTERN]
         M[RAVEN_UUID_OLD]
         N[SURVEILLANCE_OUI]
+        H[BACKHAUL_OUI_HIDDEN]
     end
 ```
 
