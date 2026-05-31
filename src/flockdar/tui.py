@@ -379,6 +379,7 @@ class FlockDetectApp(App):
         # Live-mode state: dedup-by-MAC map populated as detections arrive.
         self._live_seen: dict[str, Hit] = {}
         self._serial_stop = False
+        self._enrich_cache = enrich_mod.load_enrich_cache()
 
     @property
     def _out_stem(self) -> str:
@@ -435,6 +436,7 @@ class FlockDetectApp(App):
         table.focus()
 
     def _on_data_loaded(self, hits: list[Hit], total: int) -> None:
+        enrich_mod.apply_cached_enrichment(hits, self._enrich_cache)
         self.all_hits = hits
         self.total_records = total
         self._build_table()
@@ -666,7 +668,7 @@ class FlockDetectApp(App):
 
     @work
     async def _run_enrichment(self, hits: list[Hit]) -> None:
-        enrichers = build_enrichers()
+        enrichers = build_enrichers(cache=self._enrich_cache)
         enriched = 0
 
         def on_hit_done(hit: Hit) -> None:
@@ -674,7 +676,7 @@ class FlockDetectApp(App):
             enriched += 1
             self._on_hit_enriched(hit, enriched, len(hits))
 
-        await enrich_hits_async(hits, enrichers, callback=on_hit_done)
+        await enrich_hits_async(hits, enrichers, callback=on_hit_done, cache=self._enrich_cache)
         self._on_enrichment_done(enriched)
 
     def _on_hit_enriched(self, hit: Hit, done: int, total: int) -> None:
