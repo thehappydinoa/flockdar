@@ -13,6 +13,7 @@ for real-time ingestion by the TUI.
 ```bash
 uv run esp32/gen_oui_header.py     # sync oui_list.h with signatures.py
 cd esp32
+# PlatformIO needs pip in its venv:  uv tool install platformio --with pip
 pio run -e esp32-s3 -t upload      # build + flash an ESP32-S3 dev board
 pio device monitor -b 115200       # watch the JSON stream
 
@@ -214,9 +215,7 @@ esp32/
     gps.cpp/.h          GPS NMEA parser (FD_ENABLE_GPS)
     sdlog.cpp/.h        microSD NDJSON logger (FD_ENABLE_SD)
     signing.cpp/.h      HMAC-SHA256 frame signing
-    display.cpp/.h      On-device UI (OLED or T-Deck TFT)
-    tdeck_ui.cpp/.h     T-Deck display + trackball + keyboard (FD_ENABLE_TDECK_UI)
-    tdeck_board.h       LilyGO GPIO constants (factory utilities.h)
+    display.cpp/.h      SSD1306 OLED status (FD_ENABLE_OLED)
     serial_out.cpp/.h   JSON serialisation + signing + output (serial + SD)
 ```
 
