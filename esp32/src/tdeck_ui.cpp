@@ -14,6 +14,7 @@
 #include "ble_scanner.h"
 #include "rf_sightings.h"
 #include "match.h"
+#include "tdeck_icons.h"
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
 #endif
@@ -369,36 +370,35 @@ void flock_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
   snprintf(line2, line2sz, "%s %s %d dBm", h.kind, h.method, h.rssi);
 }
 
-void nearby_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
-                   size_t line2sz) {
+void nearby_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
   RfDevice d{};
-  if (!rf_sightings_get(index, &d)) {
-    strncpy(line1, "--", line1sz);
-    strncpy(line2, "", line2sz);
-    return;
-  }
-  const char *vendor = rf_vendor(d);
-  if (vendor) {
-    snprintf(line1, line1sz, "%s", vendor);
-    if (strcmp(d.kind, "wifi") == 0) {
-      snprintf(line2, line2sz, "%s ch%u %d dBm", d.mac, (unsigned)d.channel,
-               d.rssi);
-    } else {
-      const char *label =
-          (d.label[0] && strcmp(d.label, "ble") != 0) ? d.label : d.mac;
-      snprintf(line2, line2sz, "%s %d dBm", label, d.rssi);
+  if (!out || !rf_sightings_get(index, &d)) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kUnknown);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
     }
     return;
   }
-  strncpy(line1, d.mac, line1sz);
-  if (strcmp(d.kind, "wifi") == 0) {
-    snprintf(line2, line2sz, "wifi ch%u %d dBm x%lu", (unsigned)d.channel,
-             d.rssi, (unsigned long)d.seen);
-  } else if (d.has_mfgrid) {
-    snprintf(line2, line2sz, "ble cid%u %d dBm", (unsigned)d.mfgrid, d.rssi);
+  const char *vendor = rf_vendor(d);
+  const DevIcon icon = classify_rf_device(d, vendor);
+  out->icon = static_cast<uint8_t>(icon);
+  if (vendor) {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", vendor,
+             dev_icon_label(icon));
   } else {
-    snprintf(line2, line2sz, "%s %d dBm x%lu", d.label, d.rssi,
-             (unsigned long)d.seen);
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", d.mac,
+             dev_icon_label(icon));
+  }
+  if (strcmp(d.kind, "wifi") == 0) {
+    snprintf(out->line2, sizeof(out->line2), "ch%u  %d dBm  x%lu",
+             (unsigned)d.channel, d.rssi, (unsigned long)d.seen);
+  } else if (d.label[0] && strcmp(d.label, "ble") != 0) {
+    snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.label,
+             d.rssi, (unsigned long)d.seen);
+  } else {
+    snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.mac,
+             d.rssi, (unsigned long)d.seen);
   }
 }
 
@@ -417,9 +417,9 @@ void paint_nearby(bool force) {
   char footer[40];
   snprintf(footer, sizeof(footer), "%u uniq  d detail  j/k",
            (unsigned)count);
-  chrome.paint_scroll_list(count, &s_nearby_sel, &s_paint_nearby_sel,
-                           &s_paint_nearby_start, &s_paint_nearby_count,
-                           nearby_row_fn, footer, kListTopY, force);
+  chrome.paint_icon_scroll_list(count, &s_nearby_sel, &s_paint_nearby_sel,
+                                &s_paint_nearby_start, &s_paint_nearby_count,
+                                nearby_icon_row_fn, footer, kListTopY, force);
 }
 
 void paint_sd(bool force) {
@@ -510,18 +510,19 @@ void paint_detail(bool force) {
       chrome.paint_footer("s nearby  a list");
       return;
     }
+    const char *vendor = rf_vendor(d);
+    const DevIcon icon = classify_rf_device(d, vendor);
     char buf[64];
     int y = kListTopY;
-    const char *vendor = rf_vendor(d);
+    draw_dev_icon(tft, icon, 4, y, TFT_CYAN, TFT_BLACK);
     if (vendor) {
-      snprintf(buf, sizeof(buf), "Vendor: %s", vendor);
-      chrome.paint_text(4, y, buf, 1, TFT_CYAN, TFT_BLACK);
-      y += 14;
+      snprintf(buf, sizeof(buf), "%s · %s", vendor, dev_icon_label(icon));
+    } else {
+      snprintf(buf, sizeof(buf), "%s · %s", d.mac, dev_icon_label(icon));
     }
-    chrome.paint_text(4, y, d.mac, 2, TFT_WHITE, TFT_BLACK);
-    y += 20;
-    snprintf(buf, sizeof(buf), "%s", d.kind);
-    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+    chrome.paint_text(22, y + 2, buf, 1, TFT_WHITE, TFT_BLACK);
+    y += 18;
+    chrome.paint_text(4, y, d.mac, 1, TFT_DARKGREY, TFT_BLACK);
     y += 14;
     snprintf(buf, sizeof(buf), "RSSI: %d dBm", d.rssi);
     chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
@@ -606,7 +607,6 @@ void paint_help(bool force) {
       "a       all nearby devices",
       "f       SD card diagnostics",
       "d ret   detail for selection",
-      "        (nearby or Flock list)",
       "h       this screen",
       "j k     list down / up",
       "g G     last / first hit",
@@ -614,7 +614,6 @@ void paint_help(bool force) {
       "+ -     screen brightness",
       "Ball    L/R change screen",
       "        U/D scroll list",
-      "        click open detail",
       nullptr,
   };
   int y = kListTopY;
@@ -622,6 +621,9 @@ void paint_help(bool force) {
     chrome.paint_text(4, y, lines[i], 1, TFT_WHITE, TFT_BLACK);
     y += 12;
   }
+  draw_boot_icon(tft, 4, y + 2, TFT_CYAN, TFT_BLACK);
+  chrome.paint_text(22, y + 4, "click = detail / select", 1, TFT_WHITE,
+                    TFT_BLACK);
   chrome.paint_footer("h or Esc to close");
   s_help_painted = true;
 }
@@ -1069,8 +1071,12 @@ void tdeck_ui_begin() {
   tft.setRotation(1);
   tft.fillScreen(TFT_BLACK);
 
+  draw_boot_icon(tft, tft.width() / 2 - 8, 72, TFT_CYAN, TFT_BLACK);
   chrome.paint_header("flockdar", 0, false, true);
-  chrome.paint_text(4, 40, "Wardrive starting...", 2, TFT_WHITE, TFT_BLACK);
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawString("Wardrive starting...", tft.width() / 2, 96, 1);
+  tft.setTextDatum(TL_DATUM);
 
   pinMode(TDECK_BL_PIN, OUTPUT);
   for (int i = 0; i <= 16; ++i) {
