@@ -31,6 +31,17 @@ class TdeckChrome {
                          ScrollRowFn row_fn, const char *footer, int top_y,
                          bool force);
 
+  struct IconRow {
+    uint8_t icon;  // DevIcon
+    char line1[36];
+    char line2[44];
+  };
+  typedef void (*IconRowFn)(size_t index, IconRow *out);
+  void paint_icon_scroll_list(size_t count, size_t *sel, size_t *paint_sel,
+                              size_t *paint_start, size_t *paint_count,
+                              IconRowFn row_fn, const char *footer, int top_y,
+                              bool force);
+
   TFT_eSPI &tft() { return tft_; }
 
  private:
