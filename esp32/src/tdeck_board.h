@@ -17,9 +17,17 @@
 #define TDECK_SPI_MISO 38
 
 #define TDECK_RADIO_CS 9
+#define TDECK_SD_CS 39  // BOARD_SDCARD_CS — shared SPI with TFT + LoRa
 
 #define TDECK_TBOX_RIGHT 2   // BOARD_TBOX_G02
 #define TDECK_TBOX_UP 3      // BOARD_TBOX_G01
 #define TDECK_TBOX_LEFT 1    // BOARD_TBOX_G04
 #define TDECK_TBOX_DOWN 15   // BOARD_TBOX_G03
 #define TDECK_TRACKBALL_BTN 0  // BOARD_BOOT_PIN (trackball click)
+
+// Deassert every device on the shared SPI bus (LilyGO setupSD() pattern).
+inline void tdeck_spi_idle() {
+  digitalWrite(TDECK_TFT_CS, HIGH);
+  digitalWrite(TDECK_RADIO_CS, HIGH);
+  digitalWrite(TDECK_SD_CS, HIGH);
+}

@@ -19,6 +19,10 @@ pio device monitor -b 115200       # watch the JSON stream
 
 # with OLED + GPS wired up (see pin defines in src/config.h):
 pio run -e esp32-s3-full -t upload
+
+# LilyGO T-Deck / T-Deck Plus (onboard display, GPS, SD):
+pio run -e t-deck -t upload
+# Uses LilyGO board + vendored TFT_eSPI — see vendor/README.md and SETUP.md
 ```
 
 Set the HMAC key shared with the Python receiver before field use — edit the
