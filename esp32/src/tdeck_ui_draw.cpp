@@ -37,6 +37,7 @@ TdeckChrome::TdeckChrome(TFT_eSPI &tft)
       page_idx_(-1),
       bat_mv_(0),
       bat_usb_(false),
+      flock_alert_(false),
       header_ok_(false) {}
 
 uint8_t TdeckChrome::battery_percent(uint16_t mv) {
@@ -51,29 +52,38 @@ void TdeckChrome::invalidate_header() {
   page_idx_ = -2;
   bat_mv_ = 0;
   bat_usb_ = false;
+  flock_alert_ = false;
 }
 
-int TdeckChrome::list_visible_rows(int top_y) const {
-  return (tft_.height() - top_y - kChromeBottom) / kRowH;
-}
-
-void TdeckChrome::paint_title_bar(const char *title, int page_idx) {
-  const int title_w = tft_.width() - kBatW;
-  tft_.fillRect(0, 0, title_w, kHdrH, kSurface);
+void TdeckChrome::paint_header_background(bool flock_alert) {
+  const uint16_t bar_bg = flock_alert ? kAccentDim : kSurface;
+  tft_.fillRect(0, 0, tft_.width(), kHdrH, bar_bg);
+  if (flock_alert) {
+    tft_.fillRect(0, 0, kAccentW, kHdrH, kFlock);
+    tft_.fillRect(tft_.width() - kAccentW, 0, kAccentW, kHdrH, kFlock);
+    tft_.drawFastHLine(0, kHdrH - 2, tft_.width(), kFlock);
+  }
   tft_.drawFastHLine(0, kHdrH - 1, tft_.width(), kDivider);
+}
 
-  tft_.setTextColor(kText, kSurface);
+void TdeckChrome::paint_title_bar(const char *title, int page_idx,
+                                  bool flock_alert, uint16_t bar_bg) {
+  (void)flock_alert;
+  const int title_w = tft_.width() - kBatW;
+  (void)title_w;
+
+  tft_.setTextColor(kText, bar_bg);
   tft_.setTextDatum(TL_DATUM);
   int title_x = 4;
   if (title && strcmp(title, "FLOCKDAR") == 0) {
-    draw_flockdar_logo(tft_, 4, 6, kFlock, kSurface);
+    draw_flockdar_logo(tft_, 4, 6, kFlock, bar_bg);
     title_x = 20;
   }
   tft_.drawString(title, title_x, 6, kFontTitle);
 
   const char *tab = page_tab_label(page_idx);
   if (tab) {
-    tft_.setTextColor(kAccent, kSurface);
+    tft_.setTextColor(kAccent, bar_bg);
     tft_.setTextDatum(TC_DATUM);
     tft_.drawString(tab, tft_.width() / 2, 8, kFontLabel);
   }
@@ -81,12 +91,30 @@ void TdeckChrome::paint_title_bar(const char *title, int page_idx) {
   strncpy(title_, title, sizeof(title_) - 1);
   title_[sizeof(title_) - 1] = '\0';
   page_idx_ = page_idx;
+  flock_alert_ = flock_alert;
   tft_.setTextDatum(TL_DATUM);
 }
 
-void TdeckChrome::paint_battery(uint16_t bat_mv, bool bat_usb) {
+int TdeckChrome::list_visible_rows(int top_y) const {
+  return (tft_.height() - top_y - kChromeBottom) / kRowH;
+}
+
+void TdeckChrome::paint_badge(int x, int y, const char *text, uint16_t fg,
+                              uint16_t bg) {
+  if (!text || !text[0]) return;
+  tft_.setTextFont(kFontLabel);
+  const int w = tft_.textWidth(text, kFontLabel) + 8;
+  const int h = 12;
+  tft_.fillRoundRect(x, y, w, h, 2, bg);
+  tft_.setTextColor(fg, bg);
+  tft_.setTextDatum(TL_DATUM);
+  tft_.drawString(text, x + 4, y, kFontLabel);
+}
+
+void TdeckChrome::paint_battery(uint16_t bat_mv, bool bat_usb, bool flock_alert,
+                                uint16_t bar_bg) {
+  (void)flock_alert;
   const int x = tft_.width() - kBatW;
-  tft_.fillRect(x, 0, kBatW, kHdrH, kSurface);
 
   char bat[12];
   uint16_t bat_color = kText;
@@ -113,7 +141,7 @@ void TdeckChrome::paint_battery(uint16_t bat_mv, bool bat_usb) {
     strncpy(bat, "--", sizeof(bat));
   }
 
-  tft_.setTextColor(bat_color, kSurface);
+  tft_.setTextColor(bat_color, bar_bg);
   tft_.setTextDatum(TR_DATUM);
   tft_.drawString(bat, tft_.width() - 4, 4, kFontLabel);
   tft_.setTextDatum(TL_DATUM);
@@ -123,23 +151,21 @@ void TdeckChrome::paint_battery(uint16_t bat_mv, bool bat_usb) {
 }
 
 void TdeckChrome::paint_header(const char *title, int page_idx, uint16_t bat_mv,
-                               bool bat_usb, bool force) {
-  const bool title_changed =
+                               bool bat_usb, bool flock_alert, bool force) {
+  const bool hdr_changed =
       force || !header_ok_ || strcmp(title_, title) != 0 ||
-      page_idx_ != page_idx;
-  const bool bat_changed =
-      force || !header_ok_ || bat_mv_ != bat_mv || bat_usb_ != bat_usb;
+      page_idx_ != page_idx || flock_alert_ != flock_alert ||
+      bat_mv_ != bat_mv || bat_usb_ != bat_usb;
 
-  if (!title_changed && !bat_changed) {
+  if (!hdr_changed) {
     return;
   }
 
-  if (title_changed) {
-    paint_title_bar(title, page_idx);
-  }
-  if (bat_changed) {
-    paint_battery(bat_mv, bat_usb);
-  }
+  const uint16_t bar_bg = flock_alert ? kAccentDim : kSurface;
+  paint_header_background(flock_alert);
+  paint_title_bar(title, page_idx, flock_alert, bar_bg);
+  paint_battery(bat_mv, bat_usb, flock_alert, bar_bg);
+
   header_ok_ = true;
 }
 
@@ -255,7 +281,7 @@ void TdeckChrome::paint_soft_keys(const char *left, char left_key,
   tft_.fillRect(0, y, tft_.width(), kFooterH, kSurface);
   tft_.drawFastHLine(0, y, tft_.width(), kDivider);
 
-  const int text_y = y + 12;
+  const int text_y = y + kSoftKeyTextY;
   if (left && left[0]) {
     paint_soft_key_label(4, text_y, TL_DATUM, left, left_key);
   }
@@ -377,7 +403,8 @@ void TdeckChrome::paint_scroll_list(size_t count, size_t *sel,
 
 void TdeckChrome::paint_icon_scroll_list(
     size_t count, size_t *sel, size_t *paint_sel, size_t *paint_start,
-    size_t *paint_count, IconRowFn row_fn, int top_y, bool force) {
+    size_t *paint_count, IconRowFn row_fn, int top_y, bool force,
+    bool flock_accent) {
   const int visible = list_visible_rows(top_y);
 
   if (count == 0) {
@@ -404,7 +431,7 @@ void TdeckChrome::paint_icon_scroll_list(
     IconRow row{};
     row_fn(index, &row);
     const int y = top_y + (int)row_index * kRowH;
-    paint_list_row(y, selected, false, row.line1, kFontLabel, row.line2,
+    paint_list_row(y, selected, flock_accent, row.line1, kFontLabel, row.line2,
                    row.icon, true);
   };
 
