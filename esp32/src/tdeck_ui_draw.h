@@ -15,7 +15,9 @@ class TdeckChrome {
 
   // page_idx: 0=STATUS 1=HITS 2=NEARBY, or -1 for no tab.
   void paint_header(const char *title, int page_idx, uint16_t bat_mv,
-                    bool bat_usb, bool force = false);
+                    bool bat_usb, bool flock_alert = false, bool force = false);
+
+  void paint_badge(int x, int y, const char *text, uint16_t fg, uint16_t bg);
 
   void paint_text(int x, int y, const char *text, uint8_t font, uint16_t fg,
                   uint16_t bg);
@@ -51,7 +53,8 @@ class TdeckChrome {
   typedef void (*IconRowFn)(size_t index, IconRow *out);
   void paint_icon_scroll_list(size_t count, size_t *sel, size_t *paint_sel,
                               size_t *paint_start, size_t *paint_count,
-                              IconRowFn row_fn, int top_y, bool force);
+                              IconRowFn row_fn, int top_y, bool force,
+                              bool flock_accent = false);
 
   TFT_eSPI &tft() { return tft_; }
 
@@ -61,10 +64,14 @@ class TdeckChrome {
   int page_idx_;
   uint16_t bat_mv_;
   bool bat_usb_;
+  bool flock_alert_;
   bool header_ok_;
 
-  void paint_title_bar(const char *title, int page_idx);
-  void paint_battery(uint16_t bat_mv, bool bat_usb);
+  void paint_title_bar(const char *title, int page_idx, bool flock_alert,
+                       uint16_t bar_bg);
+  void paint_battery(uint16_t bat_mv, bool bat_usb, bool flock_alert,
+                     uint16_t bar_bg);
+  void paint_header_background(bool flock_alert);
   void paint_soft_key_label(int x, int y, uint8_t datum, const char *label,
                             char hotkey);
   static uint8_t battery_percent(uint16_t mv);

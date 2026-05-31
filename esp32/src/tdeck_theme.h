@@ -19,9 +19,10 @@ constexpr uint16_t kWarn = 0xFEA0;       // yellow
 constexpr uint16_t kDanger = 0xF800;     // red
 
 constexpr int kHeaderH = 28;
-constexpr int kFooterH = 36;
-constexpr int kDotBandH = 12;
-constexpr int kChromeBottom = kFooterH + kDotBandH;  // 48
+constexpr int kFooterH = 28;
+constexpr int kDotBandH = 8;
+constexpr int kChromeBottom = kFooterH + kDotBandH;  // 36
+constexpr int kSoftKeyTextY = 9;  // offset within footer band
 constexpr int kBodyTop = kHeaderH;
 constexpr int kRowH = 36;
 constexpr int kAccentW = 3;

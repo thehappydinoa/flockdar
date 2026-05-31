@@ -98,6 +98,8 @@ int s_status_scroll = 0;
 
 struct HitLine {
   char mac[18];
+  uint8_t mac_raw[6];
+  bool has_mac;
   char kind[5];
   char method[16];
   char name[32];
@@ -177,6 +179,8 @@ uint32_t s_last_bat_poll = 0;
 bool s_help_painted = false;
 uint32_t s_help_key_block_until = 0;
 int s_paint_status_scroll = -1;
+uint32_t s_hit_alert_until = 0;
+constexpr uint32_t kHitAlertMs = 700;
 
 void invalidate_status_paint_cache() {
   s_paint_status_scroll = -1;
@@ -258,10 +262,13 @@ void push_hit(const Detection &d) {
   s_hit_total++;
 
   HitLine line{};
+  line.has_mac = d.has_mac;
   if (d.has_mac) {
+    memcpy(line.mac_raw, d.mac, 6);
     snprintf(line.mac, sizeof(line.mac), "%02x:%02x:%02x:%02x:%02x:%02x",
              d.mac[0], d.mac[1], d.mac[2], d.mac[3], d.mac[4], d.mac[5]);
   } else {
+    line.mac_raw[0] = line.mac_raw[1] = line.mac_raw[2] = 0;
     strncpy(line.mac, "--", sizeof(line.mac));
   }
   strncpy(line.kind, d.kind == DET_WIFI ? "wifi" : "ble", sizeof(line.kind));
@@ -287,6 +294,8 @@ void push_hit(const Detection &d) {
   if (s_list_sel >= s_hit_count && s_hit_count > 0) {
     s_list_sel = s_hit_count - 1;
   }
+  s_hit_alert_until = millis() + kHitAlertMs;
+  chrome.invalidate_header();
   uint32_t now = millis();
   if (now - s_last_draw >= kHitRedrawMs && s_screen != Screen::kHelp &&
       s_screen != Screen::kSd) {
@@ -426,8 +435,12 @@ void paint_status_dynamic(bool force) {
   if (!last_changed && s_hit_count > 0) {
     const HitLine &h = s_hits[s_hit_count - 1];
     char detail[48];
-    snprintf(detail, sizeof(detail), "%s · %s · %d dBm", h.kind, h.method,
-             h.rssi);
+    if (flock_method_is_probe(h.method)) {
+      snprintf(detail, sizeof(detail), "PROBE · %s · %d dBm", h.kind, h.rssi);
+    } else {
+      snprintf(detail, sizeof(detail), "%s · %s · %d dBm", h.kind,
+               flock_method_short(h.method), h.rssi);
+    }
     last_changed = (strcmp(s_paint_last_mac, h.mac) != 0 ||
                     strcmp(s_paint_last_detail, detail) != 0);
   }
@@ -449,8 +462,12 @@ void paint_status_dynamic(bool force) {
                          kFlock, kBg);
         chrome.paint_text(4 + kAccentW + 18, y_last + 2, h.mac, kFontMac,
                           kText, kBg);
-        snprintf(buf, sizeof(buf), "%s · %s · %d dBm", h.kind, h.method,
-                 h.rssi);
+        if (flock_method_is_probe(h.method)) {
+          snprintf(buf, sizeof(buf), "PROBE · %s · %d dBm", h.kind, h.rssi);
+        } else {
+          snprintf(buf, sizeof(buf), "%s · %s · %d dBm", h.kind,
+                   flock_method_short(h.method), h.rssi);
+        }
         chrome.paint_text(4 + kAccentW + 18, y_last + 20, buf, kFontLabel,
                           kTextMuted, kBg);
       }
@@ -526,20 +543,46 @@ void paint_status(bool force_full) {
   tft.resetViewport();
 }
 
-void flock_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
-                  size_t line2sz, bool *flock_accent) {
+uint16_t confidence_color(uint8_t level) {
+  if (level >= 3) return kFlock;
+  if (level >= 2) return kAccent;
+  return kTextMuted;
+}
+
+void flock_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
+  if (!out || index >= s_hit_count) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kCamera);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
+    }
+    return;
+  }
   const HitLine &h = s_hits[index];
-  strncpy(line1, h.mac, line1sz);
-  snprintf(line2, line2sz, "%s · %s · %d dBm", h.kind, h.method, h.rssi);
-  if (flock_accent) {
-    *flock_accent =
-        (strstr(h.method, "FLOCK") != nullptr ||
-         strstr(h.method, "RAVEN") != nullptr ||
-         strstr(h.method, "PENGUIN") != nullptr ||
-         strstr(h.method, "OUI") != nullptr);
+  out->icon = static_cast<uint8_t>(DevIcon::kCamera);
+  const char *vendor = h.has_mac ? oui_vendor_name(h.mac_raw) : nullptr;
+  if (vendor) {
+    snprintf(out->line1, sizeof(out->line1), "Flock · %s", vendor);
+  } else {
+    snprintf(out->line1, sizeof(out->line1), "%s", h.mac);
+  }
+  const uint8_t conf =
+      flock_det_confidence(h.kind, h.method, h.name, h.has_name);
+  const char *cl = flock_confidence_label(conf);
+  if (flock_method_is_probe(h.method)) {
+    snprintf(out->line2, sizeof(out->line2), "%s · PROBE · %d dBm", cl,
+             h.rssi);
+  } else {
+    snprintf(out->line2, sizeof(out->line2), "%s · %s · %d dBm", cl,
+             flock_method_short(h.method), h.rssi);
   }
 }
 
+void paint_list(bool force) {
+  chrome.paint_icon_scroll_list(s_hit_count, &s_list_sel, &s_paint_list_sel,
+                                &s_paint_list_start, &s_paint_list_count,
+                                flock_icon_row_fn, kListTopY, force, true);
+}
 void nearby_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
   RfDevice d{};
   if (!out || !rf_sightings_get(index, &d)) {
@@ -570,12 +613,6 @@ void nearby_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
     snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.mac,
              d.rssi, (unsigned long)d.seen);
   }
-}
-
-void paint_list(bool force) {
-  chrome.paint_scroll_list(s_hit_count, &s_list_sel, &s_paint_list_sel,
-                           &s_paint_list_start, &s_paint_list_count,
-                           flock_row_fn, kListTopY, force);
 }
 
 void paint_nearby(bool force) {
@@ -728,19 +765,39 @@ void paint_detail(bool force) {
   }
 
   const HitLine &h = s_hits[s_list_sel];
+  const uint8_t conf =
+      flock_det_confidence(h.kind, h.method, h.name, h.has_name);
+  const char *vendor = h.has_mac ? oui_vendor_name(h.mac_raw) : nullptr;
   char val[24];
+  char buf[64];
   int y = kListTopY;
-  tft.fillRect(0, y, kAccentW, 20, kFlock);
-  chrome.paint_text(4 + kAccentW, y + 2, h.mac, kFontMac, kText, kBg);
-  y += 22;
+  draw_dev_icon(tft, DevIcon::kCamera, 4, y, kFlock, kBg);
+  if (vendor) {
+    snprintf(buf, sizeof(buf), "Flock · %s", vendor);
+  } else {
+    snprintf(buf, sizeof(buf), "Flock camera");
+  }
+  chrome.paint_text(22, y + 2, buf, kFontLabel, kText, kBg);
+  if (flock_method_is_probe(h.method)) {
+    chrome.paint_badge(tft.width() - 50, y + 1, "PROBE", kBg, kFlock);
+  }
+  y += 20;
   chrome.paint_divider(y);
   y += 4;
-  chrome.paint_section_label(y, "SIGNAL");
+  chrome.paint_section_label(y, "DETECTION");
   y += kSectionH + 2;
-  chrome.paint_field(y, "Kind", h.kind);
+  chrome.paint_text(4, y, "Confidence", kFontLabel, kTextMuted, kBg);
+  tft.setTextColor(confidence_color(conf), kBg);
+  tft.setTextDatum(TR_DATUM);
+  tft.drawString(flock_confidence_label(conf), tft.width() - 4, y, kFontLabel);
+  tft.setTextDatum(TL_DATUM);
   y += kFieldH;
-  chrome.paint_field(y, "Method", h.method);
+  chrome.paint_field(y, "Method", flock_method_short(h.method));
   y += kFieldH;
+  chrome.paint_field(y, "MAC", h.mac);
+  y += kFieldH;
+  chrome.paint_section_label(y, "RF");
+  y += kSectionH + 2;
   snprintf(val, sizeof(val), "%d dBm", h.rssi);
   chrome.paint_field(y, "RSSI", val);
   y += kFieldH;
@@ -1022,8 +1079,9 @@ void redraw() {
   }
 
   const int hdr_page = is_carousel(s_screen) ? carousel_index(s_screen) : -1;
+  const bool flock_alert = (s_hit_alert_until > millis());
   chrome.paint_header(screen_title(s_screen), hdr_page, s_bat_mv, s_bat_usb,
-                      screen_changed);
+                      flock_alert, screen_changed);
   screen_painter(s_screen)(screen_changed);
   if (is_carousel(s_screen)) {
     chrome.paint_page_dots(kCarouselPages, (size_t)carousel_index(s_screen));
@@ -1313,7 +1371,7 @@ void tdeck_ui_begin() {
   tft.fillScreen(kBg);
 
   draw_flockdar_logo(tft, tft.width() / 2 - 7, 72, kFlock, kBg);
-  chrome.paint_header("FLOCKDAR", -1, 0, false, true);
+  chrome.paint_header("FLOCKDAR", -1, 0, false, false, true);
   tft.drawFastHLine(tft.width() / 2 - 40, 88, 80, kAccent);
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(kTextMuted, kBg);
@@ -1390,6 +1448,12 @@ void tdeck_ui_loop() {
 
   if (s_screen == Screen::kNearby &&
       rf_sightings_count() != s_paint_nearby_count) {
+    s_dirty = true;
+  }
+
+  if (s_hit_alert_until != 0 && millis() >= s_hit_alert_until) {
+    s_hit_alert_until = 0;
+    chrome.invalidate_header();
     s_dirty = true;
   }
 
