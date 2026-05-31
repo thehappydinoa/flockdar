@@ -9,4 +9,6 @@ void gps_loop();
 // Snapshot for UI (fix, NMEA activity, satellites).
 void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,
                 uint8_t *sats);
+// Latest fix for stamping detections at emit time. Returns false if no fix.
+bool gps_current(double *lat, double *lon, double *alt, double *accuracy);
 #endif
