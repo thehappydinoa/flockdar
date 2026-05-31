@@ -149,9 +149,36 @@ On macOS/Linux use `/dev/cu.usbmodem*` or `/dev/ttyACM0` instead of `COM5`. Run
 upload **immediately** after the one-liner (within ~3 s). If this does nothing, use
 method 2 — hardware BOOT always works even when the app won’t start.
 
-**After a successful flash:** press **RESET** once if the screen stays black. If
-uploads are flaky on Windows, set `upload_speed = 460800` under `[env:t-deck]` in
-`esp32/platformio.ini`.
+**After a successful flash:** press **RESET** once if the screen stays black.
+
+#### Upload fails: `PermissionError(13)` / Windows error 31 on COM3
+
+Your **build succeeded** — only the USB serial step failed. Error 31 usually
+means Windows lost the port (reset to bootloader, USB glitch, or another program
+has COM3 open).
+
+1. **Close every app** that might hold the port: PlatformIO Serial Monitor,
+   `pio device monitor`, Meshtastic web client (serial), Arduino IDE, PuTTY.
+2. **Do not lock to COM3** if the number changes after reset — run
+   `pio device list` and watch Device Manager while uploading; the bootloader
+   port is often **COM4** or **COM5**, not the normal app port.
+3. **Prefer auto-detect** (`[env:t-deck]` uses `wait_for_upload_port` and
+   `use_1200bps_touch`):
+   ```bash
+   cd esp32
+   pio run -e t-deck -t upload -v
+   ```
+   When the log says **“Waiting for the new upload port…”**, do **trackball BOOT +
+   RESET**, then use whichever COM port appears.
+4. **USB hardware:** short **data** USB-C cable, **USB 2.0** port on the PC (not
+   an unpowered hub), or a **powered hub** if the link drops during connect.
+5. **Unplug → wait 5 s → replug**, power ON, hardware BOOT, then upload.
+
+Manual flash after download mode (replace `COM5`):
+
+```bash
+python -m esptool --chip esp32s3 -p COM5 -b 460800 write_flash 0x10000 .pio/build/t-deck/firmware.bin
+```
 
 ---
 
