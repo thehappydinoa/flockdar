@@ -56,6 +56,21 @@ journalctl -u flockdar-ingest -f                        # watch detections
 The service flushes `~/flock.sqlite` every 30 s and writes a final flush on
 `systemctl stop`, so a power-cut loses at most the last interval.
 
+## Native scanning (no ESP32)
+
+To scan with the Pi's own radios instead of (or in addition to) the ESP32,
+install the `pi` extra (`pipx install "flockdar[pi]"`) and `iw`, then point the
+service at `flockdar-scan`:
+
+```ini
+ExecStart=%h/.local/bin/flockdar-scan %h/flock.sqlite \
+    --wifi-iface wlan0 --meshtastic /dev/ttyACM0 --flush-interval 30
+```
+
+Grant Wi-Fi scan permission once so the service needn't run as root:
+`sudo setcap cap_net_admin,cap_net_raw+eip "$(which iw)"`. Add `--no-wifi` if the
+Pi has only its built-in adapter and you want BLE-only.
+
 ## Notes
 
 - **GPS over Wi-Fi/TCP instead of USB:** use `--meshtastic-host <ip>` if your

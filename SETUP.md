@@ -182,5 +182,40 @@ position) and stamps it onto each detection, overriding the ESP32's own GPS if
 present. If the node isn't reachable or the extra isn't installed, live mode
 continues without GPS and warns once.
 
-To run it as a boot service, see [`deploy/README.md`](deploy/README.md) and the
-[`deploy/flockdar-ingest.service`](deploy/flockdar-ingest.service) unit.
+### Native scanning (no ESP32)
+
+A Pi has the headroom to scan with its **own** radios, so you can skip the ESP32
+entirely (or run it as well). Install the `pi` extra and the `iw` tool:
+
+```bash
+pipx install "flockdar[pi]"               # BLE via bleak
+sudo apt install -y iw                    # Wi-Fi active scan
+# allow Wi-Fi scanning without sudo (optional):
+sudo setcap cap_net_admin,cap_net_raw+eip "$(which iw)"
+```
+
+Then:
+
+```bash
+# Live TUI from the Pi's Wi-Fi + Bluetooth, GPS from the Meshtastic node
+flockdar --scan --meshtastic /dev/ttyACM0
+
+# Headless logger to SQLite (BLE only on a Pi with no external Wi-Fi adapter)
+flockdar-scan ~/flock.sqlite --no-wifi --meshtastic /dev/ttyACM0
+```
+
+- **Wi-Fi** uses periodic `iw dev wlan0 scan` (`--wifi-iface` to change, needs
+  CAP_NET_ADMIN). It catches Flock camera SSIDs, `flocknet`, and chip OUIs.
+- **BLE** uses a bleak passive scan — the strongest native signals (Raven GATT
+  service UUIDs, Penguin manufacturer id 2504, `FS Ext Battery` names).
+- Either scanner can fail to start (missing tool/extra, permissions) without
+  stopping the other; the failure is shown as a notification.
+- `--no-wifi` / `--no-ble` disable a scanner. The same `--meshtastic` GPS and
+  SQLite flushing as the serial path apply.
+
+> Note: `iw` active scanning sees *advertised* networks. The ESP32's promiscuous
+> `addr1`-receiver and wildcard-probe techniques (catching sleeping cameras)
+> need monitor mode and aren't done here — pair a Pi with the ESP32 for both.
+
+To run either as a boot service, see [`deploy/README.md`](deploy/README.md) and
+the [`deploy/flockdar-ingest.service`](deploy/flockdar-ingest.service) unit.

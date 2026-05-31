@@ -57,8 +57,10 @@ uv run flockdar WigleWifi_export.csv.gz
 # live capture from an ESP32 scanner (see SETUP.md):
 uv run flockdar --serial /dev/ttyUSB0        # macOS / Linux
 uv run flockdar --serial COM3                # Windows
-# live GPS from a Meshtastic node (Raspberry Pi builds; needs the extra):
-uv run flockdar --serial /dev/ttyUSB0 --meshtastic /dev/ttyACM0
+# native scan with the host's own Wi-Fi + Bluetooth (Raspberry Pi):
+uv run flockdar --scan                       # needs the 'pi' extra + iw
+# live GPS from a Meshtastic node (works with --serial or --scan):
+uv run flockdar --scan --meshtastic /dev/ttyACM0
 # replay an SD-card log from the firmware:
 uv run flockdar flock-0001.ndjson
 ```
@@ -122,7 +124,7 @@ wigle.net → My Account → Downloads, or app → Menu → Export to SD.
 uv run pytest
 ```
 
-Tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTransport`), `signatures.py` pattern correctness, `serial_import.py` HMAC verification / NDJSON ingest, `gps_source.py` Meshtastic position decoding, and the ESP32 `pin_spec.py` GPIO validation.
+Tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTransport`), `signatures.py` pattern correctness, `serial_import.py` HMAC verification / NDJSON ingest, `scan_native.py` Wi-Fi/BLE record mapping, `gps_source.py` Meshtastic position decoding, and the ESP32 `pin_spec.py` GPIO validation.
 
 ---
 
@@ -183,6 +185,7 @@ graph LR
     ENR[enrich.py]
     DIS[discover.py]
     SER[serial_import.py]
+    SCN[scan_native.py]
     GPS[gps_source.py]
     TUI[tui.py]
 
@@ -192,7 +195,9 @@ graph LR
     ENR --> TUI
     DIS --> TUI
     SER --> TUI
+    SCN --> TUI
     GPS --> SER
+    GPS --> SCN
     GPS --> TUI
 ```
 
@@ -203,6 +208,7 @@ src/flockdar/
   enrich.py        Async enrichers: OSM/DeFlock, ALPRWatch, WiGLE API
   discover.py      WiGLE-based discovery of unseen Flock cameras (cached)
   serial_import.py ESP32 serial / NDJSON ingest — verify HMAC, map to Hits
+  scan_native.py   Raspberry Pi native Wi-Fi (iw) + BLE (bleak) scanning
   gps_source.py    Live GPS from a Meshtastic node (optional `meshtastic` extra)
   signatures.py    All OUI prefixes, BLE UUIDs, SSID/name patterns
   __main__.py      `python -m flockdar` entry point

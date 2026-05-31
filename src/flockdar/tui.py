@@ -369,6 +369,11 @@ class FlockDetectApp(App):
         hmac_key: str | None = None,
         meshtastic_dev: str | None = None,
         meshtastic_host: str | None = None,
+        scan: bool = False,
+        scan_wifi: bool = True,
+        scan_ble: bool = True,
+        wifi_iface: str = "wlan0",
+        scan_interval: float = 10.0,
     ) -> None:
         super().__init__()
         self.input_path = input_path
@@ -379,6 +384,12 @@ class FlockDetectApp(App):
         self._meshtastic_dev = meshtastic_dev
         self._meshtastic_host = meshtastic_host
         self._gps_src = None
+        # Native Pi scanning.
+        self._scan = scan
+        self._scan_wifi = scan_wifi
+        self._scan_ble = scan_ble
+        self._wifi_iface = wifi_iface
+        self._scan_interval = scan_interval
         self._display_items: list[Cluster] = []
         self._enriching = False
         self._discovering = False
@@ -405,7 +416,10 @@ class FlockDetectApp(App):
         yield Footer()
 
     def on_mount(self) -> None:
-        if self.serial_port:
+        if self._scan:
+            self.sub_title = "live: native scan"
+            self._load_scan()
+        elif self.serial_port:
             self.sub_title = f"live: {self.serial_port}"
             self._load_serial()
         else:
@@ -488,6 +502,33 @@ class FlockDetectApp(App):
         except RuntimeError as exc:  # pyserial missing / port error
             self.call_from_thread(
                 self.notify, str(exc), severity="error", title="Serial"
+            )
+
+    @work(thread=True)
+    def _load_scan(self) -> None:
+        self.call_from_thread(self._build_table)
+        position_fn = self._open_gps()
+        from . import scan_native
+
+        def status(msg: str) -> None:
+            self.call_from_thread(self.notify, msg, severity="warning", title="Native scan")
+
+        try:
+            for hit in scan_native.iter_hits(
+                wifi=self._scan_wifi,
+                ble=self._scan_ble,
+                wifi_iface=self._wifi_iface,
+                interval=self._scan_interval,
+                should_stop=lambda: self._serial_stop,
+                position_fn=position_fn,
+                on_status=status,
+            ):
+                if self._serial_stop:
+                    break
+                self.call_from_thread(self._on_live_hit, hit)
+        except RuntimeError as exc:
+            self.call_from_thread(
+                self.notify, str(exc), severity="error", title="Native scan"
             )
 
     def _on_live_hit(self, hit: Hit) -> None:
@@ -878,7 +919,31 @@ def main() -> None:
         metavar="HOST",
         help="take GPS from a Meshtastic node over TCP (hostname/IP)",
     )
+    parser.add_argument(
+        "--scan",
+        action="store_true",
+        help="native scan with the host's own Wi-Fi + Bluetooth radios "
+        "(Raspberry Pi); needs the 'pi' extra and `iw`",
+    )
+    parser.add_argument("--wifi-iface", default="wlan0", help="Wi-Fi interface for --scan")
+    parser.add_argument("--no-wifi", action="store_true", help="--scan: skip Wi-Fi")
+    parser.add_argument("--no-ble", action="store_true", help="--scan: skip BLE")
+    parser.add_argument(
+        "--scan-interval", type=float, default=10.0, help="--scan: Wi-Fi rescan seconds"
+    )
     args = parser.parse_args()
+
+    if args.scan:
+        FlockDetectApp(
+            scan=True,
+            scan_wifi=not args.no_wifi,
+            scan_ble=not args.no_ble,
+            wifi_iface=args.wifi_iface,
+            scan_interval=args.scan_interval,
+            meshtastic_dev=args.meshtastic,
+            meshtastic_host=args.meshtastic_host,
+        ).run()
+        return
 
     if args.serial:
         FlockDetectApp(
@@ -890,8 +955,8 @@ def main() -> None:
         ).run()
         return
 
-    if (args.meshtastic is not None or args.meshtastic_host) and not args.serial:
-        parser.error("--meshtastic requires --serial (live GPS stamps live detections)")
+    if (args.meshtastic is not None or args.meshtastic_host) and not (args.serial or args.scan):
+        parser.error("--meshtastic requires --serial or --scan (live GPS stamps live detections)")
 
     if not args.input:
         parser.error("provide an input file or --serial PORT")

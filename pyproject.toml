@@ -31,10 +31,13 @@ dependencies = [
 [project.optional-dependencies]
 # GPS position from a Meshtastic node (Raspberry Pi / vehicle builds).
 meshtastic = ["meshtastic>=2.3.0"]
+# Native Raspberry Pi BLE scanning (Wi-Fi uses the system `iw` tool).
+pi = ["bleak>=0.21.0"]
 
 [project.scripts]
 flockdar = "flockdar.tui:main"
 flockdar-ingest = "flockdar.serial_import:main"
+flockdar-scan = "flockdar.scan_native:main"
 
 [project.urls]
 "Source" = "https://github.com/thehappydinoa/flockdar"

@@ -12,7 +12,9 @@ uv run flockdar <wigle.sqlite>               # launch TUI
 uv run flockdar <WigleWifi_export.csv.gz>    # TUI from CSV export
 uv run flockdar <flock-0001.ndjson>          # TUI from an ESP32 SD-card log
 uv run flockdar --serial /dev/ttyUSB0        # live ESP32 capture
+uv run flockdar --scan                       # native Pi Wi-Fi + BLE scan
 uv run flockdar-ingest <port|log> [out.sqlite]   # headless ingest (python -m flockdar.serial_import)
+uv run flockdar-scan [out.sqlite]            # headless native Pi scan
 uv run python -c "import flockdar; print(flockdar.__version__)"  # import check
 uv run pytest                                # run tests
 uv run esp32/gen_oui_header.py               # regenerate esp32/oui_list.h
@@ -38,8 +40,9 @@ signatures.py  →  detect.py  →  tui.py
 
 Intra-package imports are relative (`from . import detect`); tests and external
 code use absolute imports (`from flockdar import detect`). Console scripts:
-`flockdar` → `flockdar.tui:main`, `flockdar-ingest` → `flockdar.serial_import:main`.
-Version lives in `src/flockdar/__init__.py` (`__version__`, hatchling dynamic).
+`flockdar` → `flockdar.tui:main`, `flockdar-ingest` → `flockdar.serial_import:main`,
+`flockdar-scan` → `flockdar.scan_native:main`. Optional extras: `meshtastic`,
+`pi` (bleak). Version lives in `src/flockdar/__init__.py` (`__version__`, hatchling dynamic).
 
 **`signatures.py`** — pure data, no logic. All OUI prefixes, BLE service UUIDs, SSID patterns, and GATT characteristic tables live here. Edit this file when adding new Flock device signatures. Key exports: `FLOCK_DIRECT_OUIS`, `FLOCK_CHIP_OUIS`, `FLOCK_BACKHAUL_OUIS`, `RAVEN_SERVICES_HIGH`, `SURVEILLANCE_OUIS`.
 
@@ -53,7 +56,9 @@ Version lives in `src/flockdar/__init__.py` (`__version__`, hatchling dynamic).
 
 **`serial_import.py`** — no UI imports. Ingests the flockdar-esp32 JSON stream from a live serial port (`serial_lines`, lazy `pyserial`) or a saved NDJSON log (`log_lines`, the SD-card file). `verify_line()` checks the HMAC of `wifi`/`ble` lines by stripping the trailing `,"sig":"<hex>"` to reconstruct the signed bytes; `gps` lines update a running position that detections inherit. `iter_records`/`iter_hits` map each line to a `detect` Record / `Hit` (adding an `ESP32_LIVE` provenance signal); an optional `position_fn` callback (e.g. Meshtastic GPS) overrides the ESP32's own position when it returns a fix. `merge_hit()` dedups by MAC; `load_log()` returns deduped hits; `write_sqlite()` emits a WiGLE-format `network` table so output is re-openable by the TUI. CLI: `flockdar-ingest <port|log> [out.sqlite]` (= `python -m flockdar.serial_import`); `--meshtastic`/`--meshtastic-host` add GPS, `--flush-interval` persists SQLite during long runs, and SIGINT/SIGTERM flush cleanly (systemd-friendly).
 
-**`gps_source.py`** — no UI imports. `MeshtasticPositionSource` connects to a Meshtastic node over serial or TCP (lazy `meshtastic`, optional extra), subscribes to position packets, and tracks the **local** node's latest fix (filters foreign nodes by node number). `current() -> (lat, lon) | None` is the `position_fn` the ingest stamps onto detections; `position_from_packet()` is the pure decoder (float fields preferred, `latitudeI/longitudeI` fallback, 0/0 → None). `open_meshtastic()` raises a friendly `RuntimeError` if the package is missing or the node is unreachable. HMAC key from `--key`, `$FLOCKDAR_HMAC_KEY`, or the firmware default. The TUI consumes this in `--serial` live mode and when opening `.ndjson`/`.jsonl`/`.log` files.
+**`gps_source.py`** — no UI imports. `MeshtasticPositionSource` connects to a Meshtastic node over serial or TCP (lazy `meshtastic`, optional extra), subscribes to position packets, and tracks the **local** node's latest fix (filters foreign nodes by node number). `current() -> (lat, lon) | None` is the `position_fn` the ingest stamps onto detections; `position_from_packet()` is the pure decoder (float fields preferred, `latitudeI/longitudeI` fallback, 0/0 → None). `open_meshtastic()` raises a friendly `RuntimeError` if the package is missing or the node is unreachable. Consumed by both serial ingest and native scan in `--serial`/`--scan` live mode.
+
+**`scan_native.py`** — no UI imports. Raspberry Pi native scanning using the host's own radios. Wi-Fi: `wifi_scan_once()` runs `iw dev <iface> scan` (needs CAP_NET_ADMIN) and `parse_iw_scan()` (pure, tested) maps the output to records. BLE: lazy `bleak` (optional `pi` extra) passive scan; `ble_record()` (pure, tested) maps an advertisement (name, manufacturer id → mfgrid, service UUIDs → services) to a record. Both run on daemon threads pushing onto a queue; `iter_records`/`iter_hits` drain it, apply an optional `position_fn`, run `analyze()`, and tag a `PI_NATIVE` signal. A scanner that fails to start (missing tool/extra, perms) reports via `on_status` without stopping the other. CLI: `flockdar-scan [out.sqlite]` (`--wifi-iface`/`--no-wifi`/`--no-ble`/`--interval`/`--meshtastic`); shares `write_sqlite` and SIGTERM-flush behaviour with the serial ingest.
 
 **`esp32/`** — Working PlatformIO firmware for the ESP32 companion scanner. Scanners (`wifi_scanner` promiscuous, `ble_scanner` NimBLE) push `Detection` records onto a FreeRTOS queue; the main loop drains it and `serial_out` serialises + HMAC-signs each line to USB serial and (with `FD_ENABLE_SD`) the microSD log. `match.cpp` checks OUI/mfgrid/BLE-name against the generated `oui_list.h`. Optional `gps`/`display`/`sdlog` are compile-guarded (`FD_ENABLE_GPS`/`_OLED`/`_SD`). `gen_oui_header.py` regenerates `oui_list.h` (OUIs, mfgrids, **and** BLE name patterns) from `signatures.py` so Python and C stay in sync — re-run after editing signatures. GPIO assignments are NOT hand-written: `pin_spec.py` is the validated source of truth (chip reserved-pin DB + per-board maps) that generates `src/pins.h` (board-conditional via `CONFIG_IDF_TARGET_*`); `config.h` includes it and holds behaviour knobs only. Run `pin_spec.py validate` (errors fail) then `gen`; `tests/test_pins.py` enforces both validity and header sync in CI. Hardware design is documented in `esp32/HARDWARE.md`. Build envs: `esp32-s3`, `esp32`, `esp32-s3-sd`, `esp32-s3-full`. The serial/SD JSON protocol and signing scheme are documented in `esp32/README.md`.
 
