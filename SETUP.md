@@ -3,11 +3,12 @@
 Cross-platform install instructions for every flockdar tool, on **macOS**,
 **Linux**, and **Windows**:
 
-1. [The Python detector / TUI](#1-python-tool-tuipy) — analyse WiGLE data
+1. [The Python detector / TUI](#1-python-tool-flockdar) — analyse WiGLE data
 2. [The ESP32 firmware toolchain](#2-esp32-firmware-toolchain) — build & flash the scanner
 3. [USB serial drivers](#3-usb-serial-drivers) — talk to the ESP32
 4. [Finding your serial port](#4-finding-your-serial-port)
 5. [Live capture & SD-card replay](#5-live-capture--sd-card-replay)
+6. [Raspberry Pi + Meshtastic GPS](#6-raspberry-pi--meshtastic-gps)
 
 ---
 
@@ -147,3 +148,39 @@ mismatched-key streams during debugging.
 
 If `--serial` reports a permission error on Linux, you are not in the
 `dialout` group yet (see [section 2](#2-esp32-firmware-toolchain)).
+
+---
+
+## 6. Raspberry Pi + Meshtastic GPS
+
+On a Raspberry Pi (or any always-on Linux host) flockdar can take live GPS from
+a [Meshtastic](https://meshtastic.org/) node in the vehicle instead of wiring a
+GPS to the ESP32 — handy when the node already has a GPS and is in the car.
+
+Install with the optional `meshtastic` extra:
+
+```bash
+pipx install "flockdar[meshtastic]"      # or: uv tool install "flockdar[meshtastic]"
+```
+
+Plug in both the ESP32 scanner and the Meshtastic node over USB, then:
+
+```bash
+# Live TUI: detections from the ESP32, position from the Meshtastic node
+flockdar --serial /dev/ttyUSB0 --meshtastic /dev/ttyACM0
+
+# Headless logger to SQLite (flushes every 30 s; clean stop on SIGTERM)
+flockdar-ingest /dev/ttyUSB0 ~/flock.sqlite --meshtastic /dev/ttyACM0
+
+# Node reachable over the network instead of USB:
+flockdar --serial /dev/ttyUSB0 --meshtastic-host 192.168.1.50
+```
+
+`--meshtastic` with no device auto-detects a USB node. flockdar tracks the
+**local** node's fix (other GPS-equipped nodes in the mesh don't move your
+position) and stamps it onto each detection, overriding the ESP32's own GPS if
+present. If the node isn't reachable or the extra isn't installed, live mode
+continues without GPS and warns once.
+
+To run it as a boot service, see [`deploy/README.md`](deploy/README.md) and the
+[`deploy/flockdar-ingest.service`](deploy/flockdar-ingest.service) unit.

@@ -1,0 +1,28 @@
+# flockdar headless ingest — systemd unit (Raspberry Pi / always-on host).
+#
+# Reads the ESP32 scanner over USB serial, stamps each detection with GPS from
+# a Meshtastic node, and writes a TUI-openable SQLite that is flushed every
+# 30 s. See deploy/README.md for install steps.
+#
+# Edit User and the two device paths below, then:
+#   sudo cp deploy/flockdar-ingest.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now flockdar-ingest
+
+[Unit]
+Description=flockdar ESP32 ingest (Meshtastic GPS) -> SQLite
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+# Path to the flockdar-ingest console script (from `uv tool install` or pipx).
+# Find yours with: `which flockdar-ingest`
+ExecStart=%h/.local/bin/flockdar-ingest /dev/ttyUSB0 %h/flock.sqlite \
+    --meshtastic /dev/ttyACM0 --flush-interval 30
+Restart=on-failure
+RestartSec=5
+# Give the final SQLite flush time to complete on stop.
+TimeoutStopSec=20
+
+[Install]
+WantedBy=multi-user.target

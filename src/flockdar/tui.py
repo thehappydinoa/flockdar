@@ -367,12 +367,18 @@ class FlockDetectApp(App):
         serial_port: str | None = None,
         baud: int = serial_import.DEFAULT_BAUD,
         hmac_key: str | None = None,
+        meshtastic_dev: str | None = None,
+        meshtastic_host: str | None = None,
     ) -> None:
         super().__init__()
         self.input_path = input_path
         self.serial_port = serial_port
         self.baud = baud
         self._hmac_key = serial_import.resolve_key(hmac_key)
+        # Meshtastic GPS: meshtastic_dev="" means auto-detect serial node.
+        self._meshtastic_dev = meshtastic_dev
+        self._meshtastic_host = meshtastic_host
+        self._gps_src = None
         self._display_items: list[Cluster] = []
         self._enriching = False
         self._discovering = False
@@ -409,6 +415,9 @@ class FlockDetectApp(App):
     def on_unmount(self) -> None:
         # Let the serial reader thread exit (it polls this between reads).
         self._serial_stop = True
+        if self._gps_src is not None:
+            self._gps_src.close()
+            self._gps_src = None
 
     # ------------------------------------------------------------------
     # Data loading
@@ -444,14 +453,35 @@ class FlockDetectApp(App):
     # Live serial ingestion
     # ------------------------------------------------------------------
 
+    def _open_gps(self):
+        """Open the Meshtastic GPS source if configured. Returns position_fn or None."""
+        if self._meshtastic_dev is None and not self._meshtastic_host:
+            return None
+        from . import gps_source
+
+        try:
+            self._gps_src = gps_source.open_meshtastic(
+                dev_path=(self._meshtastic_dev or None), hostname=self._meshtastic_host
+            )
+        except RuntimeError as exc:  # package missing / node unreachable
+            self.call_from_thread(
+                self.notify, f"{exc}\nContinuing without GPS.",
+                severity="warning", title="Meshtastic",
+            )
+            return None
+        src = self._meshtastic_host or self._meshtastic_dev or "auto"
+        self.call_from_thread(self.notify, f"GPS from Meshtastic ({src})", title="Meshtastic")
+        return self._gps_src.current
+
     @work(thread=True)
     def _load_serial(self) -> None:
         self.call_from_thread(self._build_table)
+        position_fn = self._open_gps()
         try:
             lines = serial_import.serial_lines(
                 self.serial_port, self.baud, should_stop=lambda: self._serial_stop
             )
-            for hit in serial_import.iter_hits(lines, self._hmac_key):
+            for hit in serial_import.iter_hits(lines, self._hmac_key, position_fn=position_fn):
                 if self._serial_stop:
                     break
                 self.call_from_thread(self._on_live_hit, hit)
@@ -835,11 +865,33 @@ def main() -> None:
         help=f"HMAC key for live frames (or ${serial_import.ENV_HMAC_KEY}; "
         "default matches the firmware default)",
     )
+    parser.add_argument(
+        "--meshtastic",
+        nargs="?",
+        const="",
+        metavar="DEV",
+        help="take GPS from a Meshtastic node over serial (DEV, or blank to "
+        "auto-detect); requires the 'meshtastic' extra",
+    )
+    parser.add_argument(
+        "--meshtastic-host",
+        metavar="HOST",
+        help="take GPS from a Meshtastic node over TCP (hostname/IP)",
+    )
     args = parser.parse_args()
 
     if args.serial:
-        FlockDetectApp(serial_port=args.serial, baud=args.baud, hmac_key=args.key).run()
+        FlockDetectApp(
+            serial_port=args.serial,
+            baud=args.baud,
+            hmac_key=args.key,
+            meshtastic_dev=args.meshtastic,
+            meshtastic_host=args.meshtastic_host,
+        ).run()
         return
+
+    if (args.meshtastic is not None or args.meshtastic_host) and not args.serial:
+        parser.error("--meshtastic requires --serial (live GPS stamps live detections)")
 
     if not args.input:
         parser.error("provide an input file or --serial PORT")

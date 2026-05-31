@@ -98,6 +98,24 @@ class TestIterStream:
         recs = list(si.iter_records([WIFI_PAYLOAD], KEY, verify=False))
         assert len(recs) == 1
 
+    def test_position_fn_overrides_esp32_gps(self) -> None:
+        lines = [
+            '{"v":1,"type":"gps","lat":40.0,"lon":-74.0,"alt":1,"accuracy":3,"ts_ms":1}',
+            sign(WIFI_PAYLOAD),
+        ]
+        recs = list(si.iter_records(lines, KEY, position_fn=lambda: (10.0, 20.0)))
+        rec, _ = recs[0]
+        assert rec["lat"] == 10.0 and rec["lon"] == 20.0  # Meshtastic wins
+
+    def test_position_fn_none_falls_back_to_esp32_gps(self) -> None:
+        lines = [
+            '{"v":1,"type":"gps","lat":40.0,"lon":-74.0,"alt":1,"accuracy":3,"ts_ms":1}',
+            sign(WIFI_PAYLOAD),
+        ]
+        recs = list(si.iter_records(lines, KEY, position_fn=lambda: None))
+        rec, _ = recs[0]
+        assert rec["lat"] == 40.0 and rec["lon"] == -74.0  # no fix yet -> ESP32
+
     def test_iter_hits_chip_oui(self) -> None:
         hits = list(si.iter_hits([sign(WIFI_PAYLOAD)], KEY))
         assert len(hits) == 1

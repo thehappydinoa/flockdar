@@ -28,6 +28,10 @@ dependencies = [
     "textual>=8.2.7",
 ]
 
+[project.optional-dependencies]
+# GPS position from a Meshtastic node (Raspberry Pi / vehicle builds).
+meshtastic = ["meshtastic>=2.3.0"]
+
 [project.scripts]
 flockdar = "flockdar.tui:main"
 flockdar-ingest = "flockdar.serial_import:main"

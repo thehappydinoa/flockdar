@@ -33,6 +33,7 @@ import os
 import re
 import sqlite3
 import sys
+import time
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
@@ -140,12 +141,16 @@ def line_to_record(obj: dict[str, Any], pos: dict[str, float]) -> tuple[Record, 
 # ---------------------------------------------------------------------------
 
 def iter_records(
-    lines: Iterable[str], key: bytes, verify: bool = True
+    lines: Iterable[str],
+    key: bytes,
+    verify: bool = True,
+    position_fn: Callable[[], tuple[float, float] | None] | None = None,
 ) -> Iterator[tuple[Record, str]]:
     """Parse a line stream, verify signatures, track GPS, yield (record, method).
 
     `gps` events update the running position; `info` and unsigned/forged
-    detection lines are skipped.
+    detection lines are skipped. If `position_fn` is given and returns a fix, it
+    overrides the ESP32's own GPS — e.g. position from a Meshtastic node.
     """
     pos: dict[str, float] = {"lat": 0.0, "lon": 0.0}
     for line in lines:
@@ -165,16 +170,24 @@ def iter_records(
             continue
         if verify and not verify_line(line, key):
             continue
-        mapped = line_to_record(obj, pos)
+        effective = pos
+        if position_fn is not None:
+            fix = position_fn()
+            if fix is not None:
+                effective = {"lat": fix[0], "lon": fix[1]}
+        mapped = line_to_record(obj, effective)
         if mapped:
             yield mapped
 
 
 def iter_hits(
-    lines: Iterable[str], key: bytes, verify: bool = True
+    lines: Iterable[str],
+    key: bytes,
+    verify: bool = True,
+    position_fn: Callable[[], tuple[float, float] | None] | None = None,
 ) -> Iterator[detect.Hit]:
     """Yield a Hit per detection line (no dedup — see merge_hits)."""
-    for rec, method in iter_records(lines, key, verify=verify):
+    for rec, method in iter_records(lines, key, verify=verify, position_fn=position_fn):
         hit = detect.analyze(**rec)
         if hit:
             if method:
@@ -329,28 +342,74 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     ap.add_argument("--key", help=f"HMAC key (or ${ENV_HMAC_KEY}; default firmware key)")
     ap.add_argument("--no-verify", action="store_true", help="skip HMAC verification")
+    ap.add_argument(
+        "--meshtastic", nargs="?", const="", metavar="DEV",
+        help="take GPS from a Meshtastic node over serial (DEV, or blank to auto-detect)",
+    )
+    ap.add_argument(
+        "--meshtastic-host", metavar="HOST",
+        help="take GPS from a Meshtastic node over TCP (hostname/IP)",
+    )
+    ap.add_argument(
+        "--flush-interval", type=float, default=30.0, metavar="SEC",
+        help="when writing SQLite from a live port, flush at most this often (default 30)",
+    )
     args = ap.parse_args(argv)
 
     key = resolve_key(args.key)
     verify = not args.no_verify
+    serial = is_serial_source(args.source)
 
-    if is_serial_source(args.source):
-        lines: Iterable[str] = serial_lines(args.source, args.baud)
+    position_fn = None
+    gps_src = None
+    if args.meshtastic is not None or args.meshtastic_host:
+        from . import gps_source
+
+        gps_src = gps_source.open_meshtastic(
+            dev_path=(args.meshtastic or None), hostname=args.meshtastic_host
+        )
+        position_fn = gps_src.current
+        print("Using Meshtastic node for GPS position.", file=sys.stderr)
+
+    # Clean shutdown on Ctrl-C / `systemctl stop`: stop the serial reader so the
+    # loop exits and the final SQLite flush runs.
+    stop = {"flag": False}
+    if serial:
+        import signal
+
+        def _handle(signum, frame):  # noqa: ANN001
+            stop["flag"] = True
+
+        signal.signal(signal.SIGINT, _handle)
+        signal.signal(signal.SIGTERM, _handle)
+        lines: Iterable[str] = serial_lines(
+            args.source, args.baud, should_stop=lambda: stop["flag"]
+        )
         print(f"Reading {args.source} @ {args.baud} baud — Ctrl-C to stop.", file=sys.stderr)
     else:
         lines = log_lines(args.source)
 
     records: list[Record] = []
+    last_flush = 0.0
     try:
-        for rec, method in iter_records(lines, key, verify=verify):
+        for rec, method in iter_records(lines, key, verify=verify, position_fn=position_fn):
             records.append(rec)
             hit = detect.analyze(**rec)
             if hit:
                 if method:
                     hit.add_signal("ESP32_LIVE", method)
                 print(_summary(hit, method))
+            # Incremental persistence so a long-running service survives a kill.
+            if args.output and serial:
+                now = time.monotonic()
+                if now - last_flush >= args.flush_interval:
+                    write_sqlite(records, args.output)
+                    last_flush = now
     except KeyboardInterrupt:
         print("\nStopped.", file=sys.stderr)
+    finally:
+        if gps_src is not None:
+            gps_src.close()
 
     if args.output:
         n = write_sqlite(records, args.output)

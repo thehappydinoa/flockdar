@@ -57,6 +57,8 @@ uv run flockdar WigleWifi_export.csv.gz
 # live capture from an ESP32 scanner (see SETUP.md):
 uv run flockdar --serial /dev/ttyUSB0        # macOS / Linux
 uv run flockdar --serial COM3                # Windows
+# live GPS from a Meshtastic node (Raspberry Pi builds; needs the extra):
+uv run flockdar --serial /dev/ttyUSB0 --meshtastic /dev/ttyACM0
 # replay an SD-card log from the firmware:
 uv run flockdar flock-0001.ndjson
 ```
@@ -120,7 +122,7 @@ wigle.net → My Account → Downloads, or app → Menu → Export to SD.
 uv run pytest
 ```
 
-Tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTransport`), `signatures.py` pattern correctness, and `serial_import.py` HMAC verification / NDJSON ingest.
+Tests cover `detect.py` signal logic, `enrich.py` enrichers (via `httpx.MockTransport`), `signatures.py` pattern correctness, `serial_import.py` HMAC verification / NDJSON ingest, `gps_source.py` Meshtastic position decoding, and the ESP32 `pin_spec.py` GPIO validation.
 
 ---
 
@@ -181,6 +183,7 @@ graph LR
     ENR[enrich.py]
     DIS[discover.py]
     SER[serial_import.py]
+    GPS[gps_source.py]
     TUI[tui.py]
 
     SIG --> DET
@@ -189,6 +192,8 @@ graph LR
     ENR --> TUI
     DIS --> TUI
     SER --> TUI
+    GPS --> SER
+    GPS --> TUI
 ```
 
 ```
@@ -198,9 +203,11 @@ src/flockdar/
   enrich.py        Async enrichers: OSM/DeFlock, ALPRWatch, WiGLE API
   discover.py      WiGLE-based discovery of unseen Flock cameras (cached)
   serial_import.py ESP32 serial / NDJSON ingest — verify HMAC, map to Hits
+  gps_source.py    Live GPS from a Meshtastic node (optional `meshtastic` extra)
   signatures.py    All OUI prefixes, BLE UUIDs, SSID/name patterns
   __main__.py      `python -m flockdar` entry point
 esp32/             ESP32 companion firmware (PlatformIO) + OUI header generator
+deploy/            Raspberry Pi systemd service + deployment guide
 tests/             pytest suite (asyncio_mode=auto)
 SETUP.md           Per-OS setup for every tool (macOS / Linux / Windows)
 pyproject.toml     uv / hatchling project — dependencies, scripts, packaging
