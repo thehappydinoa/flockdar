@@ -59,7 +59,9 @@ static void promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   const int rssi = pkt->rx_ctrl.rssi;
   const uint8_t ch = pkt->rx_ctrl.channel;
 
-  if ((addr2[0] & 0x01) == 0) {
+  // Skip multicast and locally-administered (randomized) WiFi MACs — no stable
+  // OUI to label; AP/camera BSSIDs use universal addresses.
+  if ((addr2[0] & 0x03) == 0) {
     rf_sightings_note_wifi(addr2, rssi, ch);
   }
 

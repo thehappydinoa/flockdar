@@ -13,6 +13,7 @@
 #include "wifi_scanner.h"
 #include "ble_scanner.h"
 #include "rf_sightings.h"
+#include "match.h"
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
 #endif
@@ -61,6 +62,8 @@ struct HitLine {
   bool has_mfgrid;
 };
 
+enum class DetailSource : uint8_t { kFlock = 0, kNearby = 1 };
+
 TFT_eSPI tft;
 TdeckChrome chrome(tft);
 bool s_ok = false;
@@ -73,6 +76,8 @@ size_t s_list_sel = 0;
 size_t s_nearby_sel = 0;
 Screen s_screen = Screen::kStatus;
 Screen s_return_screen = Screen::kStatus;
+DetailSource s_detail_source = DetailSource::kFlock;
+Screen s_detail_return = Screen::kList;
 
 uint32_t s_last_draw = 0;
 bool s_dirty = true;
@@ -96,6 +101,7 @@ size_t s_paint_list_sel = SIZE_MAX;
 size_t s_paint_list_start = SIZE_MAX;
 size_t s_paint_list_count = SIZE_MAX;
 size_t s_paint_detail_sel = SIZE_MAX;
+uint8_t s_paint_detail_mode = 255;
 size_t s_paint_nearby_sel = SIZE_MAX;
 size_t s_paint_nearby_start = SIZE_MAX;
 size_t s_paint_nearby_count = SIZE_MAX;
@@ -158,6 +164,14 @@ void tdeck_set_brightness(uint8_t value) {
 }
 
 void spi_bus_idle() { tdeck_spi_idle(); }
+
+const char *rf_vendor(const RfDevice &d) {
+  if (d.has_mfgrid) {
+    const char *v = ble_vendor_name(d.mfgrid);
+    if (v) return v;
+  }
+  return oui_vendor_name(d.mac_raw);
+}
 
 void push_hit(const Detection &d) {
   if (d.kind != DET_WIFI && d.kind != DET_BLE) return;
@@ -363,10 +377,25 @@ void nearby_row_fn(size_t index, char *line1, size_t line1sz, char *line2,
     strncpy(line2, "", line2sz);
     return;
   }
+  const char *vendor = rf_vendor(d);
+  if (vendor) {
+    snprintf(line1, line1sz, "%s", vendor);
+    if (strcmp(d.kind, "wifi") == 0) {
+      snprintf(line2, line2sz, "%s ch%u %d dBm", d.mac, (unsigned)d.channel,
+               d.rssi);
+    } else {
+      const char *label =
+          (d.label[0] && strcmp(d.label, "ble") != 0) ? d.label : d.mac;
+      snprintf(line2, line2sz, "%s %d dBm", label, d.rssi);
+    }
+    return;
+  }
   strncpy(line1, d.mac, line1sz);
   if (strcmp(d.kind, "wifi") == 0) {
     snprintf(line2, line2sz, "wifi ch%u %d dBm x%lu", (unsigned)d.channel,
              d.rssi, (unsigned long)d.seen);
+  } else if (d.has_mfgrid) {
+    snprintf(line2, line2sz, "ble cid%u %d dBm", (unsigned)d.mfgrid, d.rssi);
   } else {
     snprintf(line2, line2sz, "%s %d dBm x%lu", d.label, d.rssi,
              (unsigned long)d.seen);
@@ -386,8 +415,8 @@ void paint_list(bool force) {
 void paint_nearby(bool force) {
   const size_t count = rf_sightings_count();
   char footer[40];
-  snprintf(footer, sizeof(footer), "%u uniq  %lu pkts  j/k",
-           (unsigned)count, (unsigned long)rf_sightings_events());
+  snprintf(footer, sizeof(footer), "%u uniq  d detail  j/k",
+           (unsigned)count);
   chrome.paint_scroll_list(count, &s_nearby_sel, &s_paint_nearby_sel,
                            &s_paint_nearby_start, &s_paint_nearby_count,
                            nearby_row_fn, footer, kListTopY, force);
@@ -453,11 +482,76 @@ void paint_sd(bool force) {
 }
 
 void paint_detail(bool force) {
+  const uint8_t mode =
+      (s_detail_source == DetailSource::kNearby) ? 1U : 0U;
+  const size_t sel =
+      (mode == 1U) ? s_nearby_sel : s_list_sel;
   if (!force && s_painted == Screen::kDetail &&
-      s_list_sel == s_paint_detail_sel) {
+      s_paint_detail_mode == mode && sel == s_paint_detail_sel) {
     return;
   }
   chrome.clear_body();
+
+  if (mode == 1U) {
+    const size_t count = rf_sightings_count();
+    if (count == 0) {
+      chrome.paint_text(4, 32, "No devices yet", 1, TFT_WHITE, TFT_BLACK);
+      chrome.paint_footer("s status  a nearby");
+      s_paint_detail_sel = sel;
+      s_paint_detail_mode = mode;
+      return;
+    }
+    if (s_nearby_sel >= count) {
+      s_nearby_sel = count - 1;
+    }
+    RfDevice d{};
+    if (!rf_sightings_get(s_nearby_sel, &d)) {
+      chrome.paint_text(4, 32, "Device gone", 1, TFT_WHITE, TFT_BLACK);
+      chrome.paint_footer("s nearby  a list");
+      return;
+    }
+    char buf[64];
+    int y = kListTopY;
+    const char *vendor = rf_vendor(d);
+    if (vendor) {
+      snprintf(buf, sizeof(buf), "Vendor: %s", vendor);
+      chrome.paint_text(4, y, buf, 1, TFT_CYAN, TFT_BLACK);
+      y += 14;
+    }
+    chrome.paint_text(4, y, d.mac, 2, TFT_WHITE, TFT_BLACK);
+    y += 20;
+    snprintf(buf, sizeof(buf), "%s", d.kind);
+    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+    y += 14;
+    snprintf(buf, sizeof(buf), "RSSI: %d dBm", d.rssi);
+    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+    y += 14;
+    if (strcmp(d.kind, "wifi") == 0 && d.channel > 0) {
+      snprintf(buf, sizeof(buf), "Channel: %u", (unsigned)d.channel);
+      chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+      y += 14;
+    }
+    if (strcmp(d.kind, "ble") == 0 && d.label[0] && strcmp(d.label, "ble") != 0) {
+      snprintf(buf, sizeof(buf), "Name: %s", d.label);
+      chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+      y += 14;
+    }
+    if (d.has_mfgrid) {
+      snprintf(buf, sizeof(buf), "Mfgrid: %u", (unsigned)d.mfgrid);
+      chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+      y += 14;
+    }
+    snprintf(buf, sizeof(buf), "Seen: %lu times", (unsigned long)d.seen);
+    chrome.paint_text(4, y, buf, 1, TFT_WHITE, TFT_BLACK);
+    y += 14;
+    snprintf(buf, sizeof(buf), "%u / %u", (unsigned)(s_nearby_sel + 1),
+             (unsigned)count);
+    chrome.paint_text(4, y + 4, buf, 1, TFT_WHITE, TFT_BLACK);
+    chrome.paint_footer("s nearby  j/k  h help");
+    s_paint_detail_sel = s_nearby_sel;
+    s_paint_detail_mode = mode;
+    return;
+  }
 
   if (s_hit_count == 0) {
     chrome.paint_text(4, 32, "No hits yet", 1, TFT_WHITE, TFT_BLACK);
@@ -500,6 +594,7 @@ void paint_detail(bool force) {
   chrome.paint_text(4, y + 4, buf, 1, TFT_WHITE, TFT_BLACK);
   chrome.paint_footer("s list  j/k hit  h help");
   s_paint_detail_sel = s_list_sel;
+  s_paint_detail_mode = mode;
 }
 
 void paint_help(bool force) {
@@ -511,6 +606,7 @@ void paint_help(bool force) {
       "a       all nearby devices",
       "f       SD card diagnostics",
       "d ret   detail for selection",
+      "        (nearby or Flock list)",
       "h       this screen",
       "j k     list down / up",
       "g G     last / first hit",
@@ -565,6 +661,7 @@ void reset_screen_cache(Screen s) {
     break;
   case Screen::kDetail:
     s_paint_detail_sel = SIZE_MAX;
+    s_paint_detail_mode = 255;
     break;
   case Screen::kHelp:
     s_help_painted = false;
@@ -590,9 +687,15 @@ void scroll_list(int delta) {
   if (s_screen == Screen::kList) {
     sel = &s_list_sel;
     count = s_hit_count;
-  } else if (s_screen == Screen::kNearby) {
+  } else if (s_screen == Screen::kNearby ||
+             (s_screen == Screen::kDetail &&
+              s_detail_source == DetailSource::kNearby)) {
     sel = &s_nearby_sel;
     count = rf_sightings_count();
+  } else if (s_screen == Screen::kDetail &&
+             s_detail_source == DetailSource::kFlock) {
+    sel = &s_list_sel;
+    count = s_hit_count;
   } else {
     return;
   }
@@ -605,16 +708,36 @@ void scroll_list(int delta) {
     else return;
   }
   s_dirty = true;
+  if (s_screen == Screen::kDetail) {
+    s_paint_detail_sel = SIZE_MAX;
+  }
 }
 
-void list_move(int delta) { scroll_list(delta); }
-
 void goto_screen(Screen sc) {
-  if (sc == Screen::kDetail && s_hit_count == 0) return;
   if (sc == s_screen) return;
   s_screen = sc;
   s_dirty = true;
 }
+
+void open_detail() {
+  if (s_screen == Screen::kNearby) {
+    if (rf_sightings_count() == 0) return;
+    s_detail_source = DetailSource::kNearby;
+    s_detail_return = Screen::kNearby;
+    goto_screen(Screen::kDetail);
+    return;
+  }
+  if (s_screen == Screen::kList ||
+      (s_screen == Screen::kDetail &&
+       s_detail_source == DetailSource::kFlock)) {
+    if (s_hit_count == 0) return;
+    s_detail_source = DetailSource::kFlock;
+    s_detail_return = Screen::kList;
+    goto_screen(Screen::kDetail);
+  }
+}
+
+void list_move(int delta) { scroll_list(delta); }
 
 void show_help() {
   if (s_screen == Screen::kHelp) return;
@@ -693,7 +816,7 @@ void poll_trackball() {
       if (s_screen == Screen::kStatus) {
         goto_screen(Screen::kList);
       } else if (s_screen == Screen::kDetail) {
-        goto_screen(Screen::kList);
+        goto_screen(s_detail_return);
       }
       break;
     case 1:
@@ -703,8 +826,13 @@ void poll_trackball() {
       }
       break;
     case 2:
-      if (s_screen == Screen::kList || s_screen == Screen::kDetail) {
+      if (s_screen == Screen::kList ||
+          (s_screen == Screen::kDetail &&
+           s_detail_source == DetailSource::kFlock)) {
         goto_screen(Screen::kStatus);
+      } else if (s_screen == Screen::kDetail &&
+                 s_detail_source == DetailSource::kNearby) {
+        goto_screen(Screen::kNearby);
       } else if (s_screen == Screen::kStatus) {
         show_help();
       }
@@ -719,9 +847,11 @@ void poll_trackball() {
       if (s_screen == Screen::kStatus) {
         goto_screen(Screen::kList);
       } else if (s_screen == Screen::kList) {
-        goto_screen(Screen::kDetail);
+        open_detail();
+      } else if (s_screen == Screen::kNearby) {
+        open_detail();
       } else if (s_screen == Screen::kDetail) {
-        goto_screen(Screen::kList);
+        goto_screen(s_detail_return);
       }
       break;
     default:
@@ -781,8 +911,9 @@ void handle_key(char key) {
     return;
   }
   if (key == 'd' || key == 'D' || key == '\n' || key == '\r') {
-    if (s_screen == Screen::kList || s_screen == Screen::kDetail) {
-      goto_screen(Screen::kDetail);
+    if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+        s_screen == Screen::kDetail) {
+      open_detail();
     } else {
       goto_screen(Screen::kList);
     }
@@ -815,14 +946,29 @@ void handle_key(char key) {
     return;
   }
   if (key == 'g') {
-    if (s_hit_count > 0) {
+    if (s_screen == Screen::kNearby ||
+        (s_screen == Screen::kDetail &&
+         s_detail_source == DetailSource::kNearby)) {
+      const size_t n = rf_sightings_count();
+      if (n > 0) {
+        s_nearby_sel = n - 1;
+        s_dirty = true;
+      }
+    } else if (s_hit_count > 0) {
       s_list_sel = s_hit_count - 1;
       s_dirty = true;
     }
     return;
   }
   if (key == 'G') {
-    if (s_hit_count > 0) {
+    if (s_screen == Screen::kNearby ||
+        (s_screen == Screen::kDetail &&
+         s_detail_source == DetailSource::kNearby)) {
+      if (rf_sightings_count() > 0) {
+        s_nearby_sel = 0;
+        s_dirty = true;
+      }
+    } else if (s_hit_count > 0) {
       s_list_sel = 0;
       s_dirty = true;
     }
