@@ -23,8 +23,11 @@ static bool parse_mac(const char *s, uint8_t out[6]) {
   return true;
 }
 
+static volatile uint32_t s_ble_adverts = 0;
+
 class FlockScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
   void onResult(NimBLEAdvertisedDevice *dev) override {
+    s_ble_adverts++;
     if (!g_det_queue) return;
 
     Detection d;
@@ -77,3 +80,5 @@ void ble_scanner_begin() {
   scan->setMaxResults(0);  // callback-only, don't buffer results
   scan->start(0, nullptr, false);  // scan forever
 }
+
+uint32_t ble_scanner_adverts() { return s_ble_adverts; }
