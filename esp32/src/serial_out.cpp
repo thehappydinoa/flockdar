@@ -124,7 +124,7 @@ void serial_out_emit(const Detection &d) {
   snprintf(line, sizeof(line), "%.*s,\"sig\":\"%s\"}", n - 1, body, sig);
   output_line(line);
 
-#ifdef FD_ENABLE_OLED
+#if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_note(d);
 #endif
 }
