@@ -56,22 +56,15 @@ library automatically on first build.
 PlatformIO is a Python package; install it with `uv` (or `pipx`):
 
 ```bash
-uv tool install platformio --with pip   # pip required for tool-esptoolpy on first build
+uv tool install platformio --with pip   # pip required for tool-esptoolpy
 # or: pipx install platformio
 # or: VS Code -> Extensions -> "PlatformIO IDE"
 ```
 
-> **If `pio run` fails with `No module named pip`** — you installed PlatformIO with
-> `uv tool install platformio` without pip. Reinstall with `--with pip` (above), or
-> use `pipx install platformio` instead.
->
-> **If you then see `MissingPackageManifestError` for tool-esptoolpy** — the first
-> install left a broken package. Remove it and rebuild:
->
-> ```bash
-> pio pkg uninstall -g -t tool-esptoolpy    # or delete %USERPROFILE%\.platformio\packages\tool-esptoolpy
-> cd esp32 && pio run -e t-deck            # re-downloads the tool
-> ```
+If `pio run` fails with `No module named pip`, reinstall with `--with pip` or use
+`pipx install platformio`. If `tool-esptoolpy` is corrupted, delete
+`%USERPROFILE%\.platformio\packages\tool-esptoolpy` (Windows) or
+`~/.platformio/packages/tool-esptoolpy` (macOS/Linux) and build again.
 
 Per-OS notes:
 
