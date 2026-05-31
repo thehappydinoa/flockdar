@@ -33,12 +33,32 @@ bool vendor_is(const char *vendor, const char *name) {
 bool vendor_is_router(const char *vendor) {
   if (!vendor) return false;
   static const char *kRouters[] = {
-      "eero",    "Meraki",  "Cisco",   "Linksys", "Netgear", "TP-Link",
-      "Ubiquiti", "ASUS",   "Arris",   "Motorola", "Verizon", "Technicolor",
-      "D-Link",  "Belkin",  "Ruckus",  "Aruba",   "Fortinet", nullptr,
+      "eero",     "Meraki",   "Cisco",    "Linksys",  "Netgear",  "TP-Link",
+      "Ubiquiti", "ASUS",     "Arris",    "Motorola", "Verizon",  "Technicolor",
+      "D-Link",   "Belkin",   "Ruckus",   "Aruba",    "Fortinet", "Huawei",
+      "Sagemcom", "ZTE",      "Zyxel",    "Actiontec","Arcadyan", "AVM",
+      "Askey",    "Hitron",   "Sercomm",  "2Wire",    "Compal",   "Pegatron",
+      "Buffalo",  "Extreme",  "MikroTik", "Sky",      "Freebox",  "Tenda",
+      "Aerohive", "Gemtek",   "NEC",      "Thomson",  "Mitsumi",  "HPE",
+      "HP",       "Wistron",  nullptr,
   };
   for (const char **p = kRouters; *p; p++) {
     if (vendor_is(vendor, *p)) return true;
+  }
+  return false;
+}
+
+bool label_is_phone(const char *label) {
+  if (!label || !label[0] || strcmp(label, "ble") == 0) return false;
+  static const char *kPhone[] = {
+      "iphone",   "ipad",     "android",  "galaxy",   "pixel",
+      "oneplus",  "redmi",    "poco",     "motorola", "moto g",
+      "moto-",    "nokia",    "oppo",     "vivo",     "realme",
+      "honor",    "phone",    "mobile",   "sm-",      "sm_a",
+      "sm-g",     "sm-s",     "sm-n",     "xperia",   nullptr,
+  };
+  for (const char **p = kPhone; *p; p++) {
+    if (ci_contains(label, *p)) return true;
   }
   return false;
 }
@@ -115,7 +135,10 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     if (vendor_is(vendor, "Garmin") || vendor_is(vendor, "Fitbit")) {
       return DevIcon::kWatch;
     }
-    return DevIcon::kPhone;
+    if (label_is_phone(label)) {
+      return DevIcon::kPhone;
+    }
+    return DevIcon::kUnknown;
   }
 
   if (vendor_is_camera(vendor)) return DevIcon::kCamera;
@@ -124,11 +147,12 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     return DevIcon::kSpeaker;
   }
   if (vendor_is(vendor, "Synology") || vendor_is(vendor, "Intel") ||
-      vendor_is(vendor, "Microsoft")) {
+      vendor_is(vendor, "Microsoft") || vendor_is(vendor, "HP") ||
+      vendor_is(vendor, "HPE")) {
     return DevIcon::kComputer;
   }
   if (vendor_is_router(vendor)) return DevIcon::kRouter;
-  return DevIcon::kRouter;
+  return DevIcon::kUnknown;
 }
 
 void draw_boot_icon(TFT_eSPI &tft, int x, int y, uint16_t fg, uint16_t bg) {
