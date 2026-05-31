@@ -34,15 +34,16 @@ void setup() {
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_begin();
 #endif
-#ifdef FD_ENABLE_SD
-  sdlog_begin();
-#endif
 #ifdef FD_ENABLE_GPS
   gps_begin();
 #endif
 
   wifi_scanner_begin();
   ble_scanner_begin();
+
+#ifdef FD_ENABLE_SD
+  sdlog_begin();
+#endif
 
   serial_out_info("flockdar-esp32 online");
 #ifdef FD_ENABLE_SD

@@ -8,5 +8,7 @@
 void tdeck_ui_begin();
 void tdeck_ui_note(const Detection &d);
 void tdeck_ui_loop();
+// Release TFT SPI so SD / other bus devices can transact.
+void tdeck_spi_release();
 
 #endif

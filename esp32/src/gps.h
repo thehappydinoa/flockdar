@@ -5,6 +5,8 @@
 
 #ifdef FD_ENABLE_GPS
 void gps_begin();
-// Feed serial bytes to the parser and enqueue a periodic fix. Call from loop.
 void gps_loop();
+// Snapshot for UI (fix, NMEA activity, satellites).
+void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,
+                uint8_t *sats);
 #endif

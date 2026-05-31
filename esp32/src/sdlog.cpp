@@ -8,6 +8,7 @@
 
 #if defined(FD_ENABLE_TDECK_UI)
 #include "tdeck_board.h"
+#include "tdeck_ui.h"
 #endif
 
 static File s_file;
@@ -19,16 +20,21 @@ static uint32_t s_last_mount_try = 0;
 
 #if defined(FD_ENABLE_TDECK_UI)
 static bool tdeck_sd_mount() {
-  tdeck_spi_idle();
-  delay(10);
-  for (int attempt = 0; attempt < 3; attempt++) {
-    if (SD.begin(TDECK_SD_CS, SPI, 800000U)) {
-      if (SD.cardType() != CARD_NONE) {
-        return true;
+  tdeck_spi_release();
+  delay(20);
+  static const uint32_t kSpeeds[] = {800000U, 4000000U, 1000000U};
+  for (uint32_t speed : kSpeeds) {
+    for (int attempt = 0; attempt < 2; attempt++) {
+      tdeck_spi_release();
+      if (SD.begin(TDECK_SD_CS, SPI, speed)) {
+        uint8_t cardType = SD.cardType();
+        if (cardType != CARD_NONE) {
+          return true;
+        }
+        SD.end();
       }
-      SD.end();
+      delay(50);
     }
-    delay(100);
   }
   return false;
 }
@@ -51,6 +57,8 @@ static bool open_log_file() {
 
 void sdlog_begin() {
 #if defined(FD_ENABLE_TDECK_UI)
+  pinMode(TDECK_SD_CS, OUTPUT);
+  digitalWrite(TDECK_SD_CS, HIGH);
   if (!tdeck_sd_mount()) {
     s_ok = false;
     s_last_mount_try = millis();
@@ -63,7 +71,15 @@ void sdlog_begin() {
     return;
   }
 #endif
-  s_ok = open_log_file();
+  if (!open_log_file()) {
+#if defined(FD_ENABLE_TDECK_UI)
+    SD.end();
+#endif
+    s_ok = false;
+    s_last_mount_try = millis();
+    return;
+  }
+  s_ok = true;
   s_last_mount_try = millis();
 }
 
@@ -74,7 +90,7 @@ const char *sdlog_path() { return s_ok ? s_path : ""; }
 void sdlog_write(const char *line) {
   if (!s_ok) return;
 #if defined(FD_ENABLE_TDECK_UI)
-  tdeck_spi_idle();
+  tdeck_spi_release();
 #endif
   s_file.print(line);
   s_file.print('\n');
@@ -94,7 +110,7 @@ void sdlog_loop() {
   uint32_t now = millis();
   if (now - s_last_flush < FD_SD_FLUSH_MS) return;
 #if defined(FD_ENABLE_TDECK_UI)
-  tdeck_spi_idle();
+  tdeck_spi_release();
 #endif
   s_file.flush();
   s_last_flush = now;

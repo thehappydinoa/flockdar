@@ -25,6 +25,10 @@
 #define TDECK_TBOX_DOWN 15   // BOARD_TBOX_G03
 #define TDECK_TRACKBALL_BTN 0  // BOARD_BOOT_PIN (trackball click)
 
+#define TDECK_BAT_ADC 4
+// 100k/100k divider; Meshtastic t-deck variant uses ×2.11 for display correction.
+#define TDECK_BAT_ADC_MULT 2.11f
+
 // Deassert every device on the shared SPI bus (LilyGO setupSD() pattern).
 inline void tdeck_spi_idle() {
   digitalWrite(TDECK_TFT_CS, HIGH);
