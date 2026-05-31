@@ -59,6 +59,13 @@ ENRICHMENT_SIGNAL_LABELS: frozenset[str] = frozenset({
 
 _UA = "flock-wigle-detect/1.0"
 
+# Per-enricher cache TTLs (seconds)
+_ENRICHER_TTLS: dict[str, float] = {
+    "OSM/DeFlock": 7 * 86_400,   # OSM changes slowly
+    "ALPRWatch":   86_400,        # matches KMZ refresh cadence
+    "WiGLE":       7 * 86_400,
+}
+
 # ---------------------------------------------------------------------------
 # Platform paths
 # ---------------------------------------------------------------------------
@@ -110,6 +117,68 @@ def save_config(cfg: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 # Bounded LRU cache
 # ---------------------------------------------------------------------------
+
+class _EnrichCache:
+    """MAC-keyed disk cache for enrichment results, keyed by enricher name.
+
+    Format: { mac: { enricher_name: { "signals": [[lbl, det], …], "ts": float } } }
+    A stored empty signals list means "was queried, nothing found" — still cached.
+    """
+
+    def __init__(self, path: Path) -> None:
+        self._path = path
+        self._data: dict[str, dict[str, Any]] = {}
+        self._dirty = False
+        if path.exists():
+            try:
+                self._data = json.loads(path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                self._data = {}
+
+    def get(self, mac: str, enricher_name: str, ttl_s: float) -> list[Signal] | None:
+        """Return cached signals or None if absent/expired."""
+        entry = self._data.get(mac.lower(), {}).get(enricher_name)
+        if entry is None:
+            return None
+        if time.time() - entry.get("ts", 0) > ttl_s:
+            return None
+        return [(s[0], s[1]) for s in entry.get("signals", [])]
+
+    def set(self, mac: str, enricher_name: str, signals: list[Signal]) -> None:
+        mac_key = mac.lower()
+        if mac_key not in self._data:
+            self._data[mac_key] = {}
+        self._data[mac_key][enricher_name] = {
+            "signals": [[lbl, det] for lbl, det in signals],
+            "ts": time.time(),
+        }
+        self._dirty = True
+
+    def save(self) -> None:
+        if not self._dirty:
+            return
+        try:
+            self._path.write_text(json.dumps(self._data), encoding="utf-8")
+            self._dirty = False
+        except OSError:
+            pass
+
+
+def load_enrich_cache() -> "_EnrichCache":
+    return _EnrichCache(_cache_dir() / "enrichment-cache.json")
+
+
+def apply_cached_enrichment(hits: list[Hit], cache: "_EnrichCache") -> None:
+    """Apply non-expired cached enrichment signals to hits — no network calls."""
+    for hit in hits:
+        if not hit.mac:
+            continue
+        for ename, ttl in _ENRICHER_TTLS.items():
+            cached = cache.get(hit.mac, ename, ttl)
+            if cached:
+                for label, detail in cached:
+                    hit.add_signal(label, detail)
+
 
 class _BoundedCache(OrderedDict[Any, Any]):
     """OrderedDict that evicts the oldest entry when maxsize is exceeded."""
@@ -186,28 +255,37 @@ class OverpassEnricher(Enricher):
         radius_m: int = 150,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        cache: "_EnrichCache | None" = None,
     ) -> None:
         self._radius = radius_m
         self._transport = transport
-        # Bounded cache keyed by rounded (lat, lon)
-        self._cache: _BoundedCache = _BoundedCache(maxsize=512)
+        self._mem_cache: _BoundedCache = _BoundedCache(maxsize=512)
+        self._disk_cache = cache
 
     async def enrich(self, hit: Hit) -> list[Signal]:
         if not (hit.lat or hit.lon):
             return []
+        if self._disk_cache is not None:
+            cached = self._disk_cache.get(hit.mac, self.name, _ENRICHER_TTLS[self.name])
+            if cached is not None:
+                return cached
         key: tuple[float, float] = (round(hit.lat, 4), round(hit.lon, 4))
-        if key not in self._cache:
-            self._cache[key] = await self._query(hit.lat, hit.lon)
-        nodes: list[dict[str, Any]] = self._cache[key]
+        if key not in self._mem_cache:
+            self._mem_cache[key] = await self._query(hit.lat, hit.lon)
+        nodes: list[dict[str, Any]] = self._mem_cache[key]
         if not nodes:
-            return []
-        closest = min(nodes, key=lambda n: _dist_m(hit.lat, hit.lon, n["lat"], n["lon"]))
-        dist = _dist_m(hit.lat, hit.lon, closest["lat"], closest["lon"])
-        tags: dict[str, str] = closest.get("tags", {})
-        label = tags.get("name") or tags.get("ref") or f"OSM:{closest['id']}"
-        operator = tags.get("operator", "")
-        detail = f"{label} ({operator}, {dist:.0f}m)" if operator else f"{label} {dist:.0f}m"
-        return [("OSM_ALPR_NEARBY", detail)]
+            result: list[Signal] = []
+        else:
+            closest = min(nodes, key=lambda n: _dist_m(hit.lat, hit.lon, n["lat"], n["lon"]))
+            dist = _dist_m(hit.lat, hit.lon, closest["lat"], closest["lon"])
+            tags: dict[str, str] = closest.get("tags", {})
+            label = tags.get("name") or tags.get("ref") or f"OSM:{closest['id']}"
+            operator = tags.get("operator", "")
+            detail = f"{label} ({operator}, {dist:.0f}m)" if operator else f"{label} {dist:.0f}m"
+            result = [("OSM_ALPR_NEARBY", detail)]
+        if self._disk_cache is not None:
+            self._disk_cache.set(hit.mac, self.name, result)
+        return result
 
     async def _query(self, lat: float, lon: float) -> list[dict[str, Any]]:
         query = _ALPR_QUERY_TMPL.format(r=self._radius, lat=lat, lon=lon)
@@ -239,12 +317,14 @@ class ALPRWatchEnricher(Enricher):
         radius_m: float = 150.0,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        cache: "_EnrichCache | None" = None,
     ) -> None:
         self._radius = radius_m
         self._transport = transport
         self._cameras: list[_Camera] = []
         self._lock = asyncio.Lock()
         self._loaded = False
+        self._disk_cache = cache
 
     def ready(self) -> bool:
         return self._loaded and bool(self._cameras)
@@ -252,6 +332,10 @@ class ALPRWatchEnricher(Enricher):
     async def enrich(self, hit: Hit) -> list[Signal]:
         if not (hit.lat or hit.lon):
             return []
+        if self._disk_cache is not None:
+            cached = self._disk_cache.get(hit.mac, self.name, _ENRICHER_TTLS[self.name])
+            if cached is not None:
+                return cached
         await self._ensure_loaded()
         cameras = self._cameras  # local ref; list replaced atomically on reload
 
@@ -268,9 +352,13 @@ class ALPRWatchEnricher(Enricher):
             if d < best_dist:
                 best_dist, best_name = d, cname
 
-        if best_dist <= self._radius:
-            return [("ALPRWATCH_NEARBY", f"{best_name} {best_dist:.0f}m")]
-        return []
+        result: list[Signal] = (
+            [("ALPRWATCH_NEARBY", f"{best_name} {best_dist:.0f}m")]
+            if best_dist <= self._radius else []
+        )
+        if self._disk_cache is not None:
+            self._disk_cache.set(hit.mac, self.name, result)
+        return result
 
     async def _ensure_loaded(self) -> None:
         async with self._lock:
@@ -355,23 +443,32 @@ class WiGLEEnricher(Enricher):
         api_token: str,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        cache: "_EnrichCache | None" = None,
     ) -> None:
         cred = base64.b64encode(f"{api_name}:{api_token}".encode()).decode()
         self.__auth_header = f"Basic {cred}"  # name-mangled; not externally readable
         self._transport = transport
         self._lock = asyncio.Lock()
         self._last_req = 0.0
+        self._disk_cache = cache
 
     async def enrich(self, hit: Hit) -> list[Signal]:
         if not hit.mac:
             return []
+        if self._disk_cache is not None:
+            cached = self._disk_cache.get(hit.mac, self.name, _ENRICHER_TTLS[self.name])
+            if cached is not None:
+                return cached
         # Serialise all WiGLE calls and enforce rate limit
         async with self._lock:
             gap = _WIGLE_RATELIM - (time.monotonic() - self._last_req)
             if gap > 0:
                 await asyncio.sleep(gap)
             self._last_req = time.monotonic()
-            return await self._fetch(hit.mac)
+            result = await self._fetch(hit.mac)
+        if self._disk_cache is not None:
+            self._disk_cache.set(hit.mac, self.name, result)
+        return result
 
     async def _fetch(self, mac: str) -> list[Signal]:
         url = f"{_WIGLE_BASE}/network/detail"
@@ -415,13 +512,14 @@ def build_enrichers(
     wigle_token: str = "",
     overpass: bool = True,
     alprwatch: bool = True,
+    cache: "_EnrichCache | None" = None,
 ) -> list[Enricher]:
     """Assemble enabled enrichers from args, env vars, and config file."""
     enrichers: list[Enricher] = []
     if overpass:
-        enrichers.append(OverpassEnricher())
+        enrichers.append(OverpassEnricher(cache=cache))
     if alprwatch:
-        enrichers.append(ALPRWatchEnricher())
+        enrichers.append(ALPRWatchEnricher(cache=cache))
 
     name  = wigle_name  or os.environ.get("WIGLE_API_NAME",  "")
     token = wigle_token or os.environ.get("WIGLE_API_TOKEN", "")
@@ -430,7 +528,7 @@ def build_enrichers(
         name  = name  or cfg.get("wigle_api_name",  "")
         token = token or cfg.get("wigle_api_token", "")
     if name and token:
-        enrichers.append(WiGLEEnricher(name, token))
+        enrichers.append(WiGLEEnricher(name, token, cache=cache))
 
     return enrichers
 
@@ -439,6 +537,7 @@ async def enrich_hits_async(
     hits: list[Hit],
     enrichers: list[Enricher],
     callback: Callable[[Hit], None] | None = None,
+    cache: "_EnrichCache | None" = None,
 ) -> None:
     """
     Enrich all hits concurrently.
@@ -461,6 +560,8 @@ async def enrich_hits_async(
             callback(hit)
 
     await asyncio.gather(*[_process(h) for h in hits])
+    if cache is not None:
+        await asyncio.to_thread(cache.save)
 
 
 def enrich_hits(
