@@ -56,10 +56,15 @@ library automatically on first build.
 PlatformIO is a Python package; install it with `uv` (or `pipx`):
 
 ```bash
-uv tool install platformio            # gives you the `pio` command everywhere
+uv tool install platformio --with pip   # pip required for tool-esptoolpy; gives you `pio` everywhere
 # or: pipx install platformio
 # or: VS Code -> Extensions -> "PlatformIO IDE"
 ```
+
+If `pio run` fails with `No module named pip`, reinstall with `--with pip` or use
+`pipx install platformio`. If `tool-esptoolpy` is corrupted, delete
+`%USERPROFILE%\.platformio\packages\tool-esptoolpy` (Windows) or
+`~/.platformio/packages/tool-esptoolpy` (macOS/Linux) and build again.
 
 Per-OS notes:
 
@@ -90,6 +95,132 @@ pio run -e esp32-s3-full -t upload     # + OLED + GPS + microSD
 
 Set the HMAC key shared with the Python receiver before field use — edit the
 `-DFD_HMAC_KEY=...` flag in `esp32/platformio.ini`.
+
+#### LilyGO T-Deck / T-Deck Plus
+
+```bash
+uv run esp32/gen_oui_header.py        # first time / after editing signatures.py
+cd esp32
+pio run -e t-deck -t upload           # build + flash (wardrive UI + GPS + SD)
+pio device monitor -b 115200          # watch JSON on USB (close before re-flashing)
+```
+
+The `[env:t-deck]` build uses native USB CDC (`ARDUINO_USB_CDC_ON_BOOT=1`). On
+**Windows**, the automatic 1200 baud reset often leaves COM3 in error 31 even
+though the **build succeeds** — see [T-Deck upload on Windows](#t-deck-upload-on-windows)
+for the verified fix (hardware BOOT during upload).
+
+See also [flash safety](#will-this-permanently-damage-the-device) and
+[entering upload mode](#entering-upload-download-mode).
+
+#### Will this permanently damage the device?
+
+**No — not in normal use.** `pio run -e t-deck -t upload` only replaces the main
+ESP32-S3 application (like Meshtastic or LilyGO examples). It does not erase the
+whole chip, change eFuses, flash the keyboard MCU (ESP32-C3), or format the SD
+card. Worst case is a **soft brick** until you re-flash — keep a Meshtastic
+`firmware-t-deck-*-update.bin` handy if you want an easy rollback. Do **not** run
+`pio run -t erase` or `erase_flash` unless you mean to wipe everything.
+
+#### T-Deck upload on Windows
+
+If `pio run -e t-deck -t upload` **builds successfully** but fails with:
+
+```text
+Could not open COM3, the port is busy or doesn't exist.
+PermissionError(13, 'A device attached to the system is not functioning.', None, 31)
+```
+
+the firmware binary is fine — only the USB serial step failed. PlatformIO’s
+1200 baud “touch” reset (`use_1200bps_touch` in `platformio.ini`) often leaves
+Windows listing COM3 in Device Manager while nothing can open it (Win32 error 31).
+
+**Verified workflow** (hardware BOOT during upload):
+
+1. **Unplug USB**, wait **5 seconds**, replug. Power switch **ON**.
+2. **Close** anything that might hold the port: PlatformIO Serial Monitor,
+   `pio device monitor`, Meshtastic serial, Arduino IDE, PuTTY.
+3. Start upload with verbose logging:
+   ```bash
+   cd esp32
+   pio run -e t-deck -t upload -v
+   ```
+4. When the log prints **`Waiting for the new upload port…`**, enter download mode:
+   - Hold **trackball center** (BOOT / GPIO0)
+   - Press and release **RESET** (left button)
+   - Release trackball
+5. Let PlatformIO finish, or if it still fails, note the COM port from
+   `pio device list` (may change to COM4/COM5 after reset) and retry:
+   ```bash
+   pio run -e t-deck -t upload --upload-port COM3
+   ```
+
+**After a successful flash:** press **RESET** once if the screen stays black. Also
+confirm the side **power switch is ON** (backlight and peripherals are gated off
+when it is off).
+
+**Black screen after flash but upload succeeded:** confirm the side **power
+switch is ON**, press **RESET** once, then re-flash if needed. The `[env:t-deck]`
+build follows [LilyGO’s T-Deck repo](https://github.com/Xinyuan-LilyGO/T-Deck):
+custom `T-Deck` board definition, `espressif32@6.3.0`, and their patched
+`TFT_eSPI` in `esp32/vendor/` (upstream `bodmer/TFT_eSPI` ignores
+`INIT_SEQUENCE_2` and leaves the panel blank). You should see `flockdar` /
+`Scanning...` within a second. Trackball **+** / **-** adjusts backlight.
+
+**Check port health** before retrying (from repo root):
+
+```bash
+uv run python esp32/scripts/upload_port_diag.py COM3
+```
+
+Writes `debug-upload-diag.log` with `open_ok: true` when the port is usable. If
+`open_ok: false` with error 31, unplug/replug before uploading again.
+
+**Manual flash** when the device is already in download mode (replace `COM3`):
+
+```bash
+cd esp32
+python -m esptool --chip esp32s3 -p COM3 -b 460800 write_flash 0x10000 .pio/build/t-deck/firmware.bin
+```
+
+**USB hardware tips:** use a short **data** USB-C cable and a direct **USB 2.0**
+port (not an unpowered hub).
+
+#### Entering upload (download) mode
+
+**Always:** device plugged in via **USB-C**, **power switch ON**.
+
+The T-Deck is **ESP32-S3** with native USB. Try these in order:
+
+**1. Automatic** — works on macOS/Linux and sometimes on Windows:
+
+```bash
+pio device list          # note the COM / cu.* port
+pio run -e t-deck -t upload --upload-port COM5   # Windows example
+```
+
+**2. Hardware BOOT (most reliable on Windows)** — **BOOT = center of the trackball**
+(GPIO0). Either:
+
+- **RESET method** ([LilyGO](https://github.com/Xinyuan-LilyGO/T-Deck)): power **on**,
+  hold **trackball center**, press **RESET** (left button), release RESET, release
+  trackball, upload within a few seconds. Best combined with step 4 of
+  [T-Deck upload on Windows](#t-deck-upload-on-windows) above.
+- **Power-off method**: turn **off**, hold **trackball center**, plug in USB while
+  still holding, release after 1–2 s, then upload.
+
+**3. 1200 baud reset** — works when the device is already running USB firmware
+(Meshtastic, flockdar, factory test) that responds to the Arduino “1200 bps touch”:
+
+```bash
+# Replace COM5 with your port from `pio device list`
+python -c "import serial, time; p='COM5'; s=serial.Serial(p,1200); s.dtr=False; s.rts=True; time.sleep(0.1); s.dtr=True; s.rts=False; s.close(); print('reset sent on', p)"
+cd esp32 && pio run -e t-deck -t upload --upload-port COM5
+```
+
+On macOS/Linux use `/dev/cu.usbmodem*` or `/dev/ttyACM0` instead of `COM5`. Run
+upload **immediately** after the one-liner (within ~3 s). On Windows, prefer
+method 2 if this leaves COM3 in error 31.
 
 ---
 

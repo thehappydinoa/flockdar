@@ -227,5 +227,11 @@ __marimo__/
 *.sqlite3
 *.db
 *.csv.gz
+*.json*
+*.csv
+
+# Cursor debug-mode / upload diagnostic logs
+debug-upload-diag.log
 WigleWifi_*
 backup-*.sqlite
+*.txt

@@ -9,6 +9,7 @@
 #include "config.h"
 #include "match.h"
 #include "protocol.h"
+#include "rf_sightings.h"
 
 // 2.4 GHz primaries — the only channels Flock cameras are seen on.
 static const uint8_t HOP_CHANNELS[] = {1, 6, 11};
@@ -17,6 +18,7 @@ static const size_t HOP_COUNT = sizeof(HOP_CHANNELS) / sizeof(HOP_CHANNELS[0]);
 static volatile uint8_t s_channel = 1;
 static size_t s_hop_idx = 0;
 static uint32_t s_last_hop = 0;
+static volatile uint32_t s_mgmt_frames = 0;
 
 // 802.11 management frame subtypes we care about.
 static const uint8_t SUBTYPE_PROBE_REQ = 0x04;
@@ -41,6 +43,7 @@ static void enqueue_wifi(const char *method, const uint8_t mac[6], int rssi,
 
 static void promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   if (type != WIFI_PKT_MGMT) return;
+  s_mgmt_frames++;
   const wifi_promiscuous_pkt_t *pkt = (const wifi_promiscuous_pkt_t *)buf;
   const uint8_t *pl = pkt->payload;
   const int len = pkt->rx_ctrl.sig_len;
@@ -55,6 +58,12 @@ static void promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   const uint8_t *addr2 = pl + 10;  // transmitter
   const int rssi = pkt->rx_ctrl.rssi;
   const uint8_t ch = pkt->rx_ctrl.channel;
+
+  // Skip multicast and locally-administered (randomized) WiFi MACs — no stable
+  // OUI to label; AP/camera BSSIDs use universal addresses.
+  if ((addr2[0] & 0x03) == 0) {
+    rf_sightings_note_wifi(addr2, rssi, ch);
+  }
 
   // 1+2. addr2 transmitter — a Flock device actively sending a frame.
   if (oui_is_flock(addr2)) enqueue_wifi("addr2", addr2, rssi, ch);
@@ -114,3 +123,5 @@ void wifi_scanner_loop() {
 }
 
 uint8_t wifi_scanner_channel() { return s_channel; }
+
+uint32_t wifi_scanner_mgmt_frames() { return s_mgmt_frames; }

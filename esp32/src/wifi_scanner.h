@@ -11,3 +11,5 @@ void wifi_scanner_loop();
 
 // Current channel, for the OLED.
 uint8_t wifi_scanner_channel();
+// Promiscuous management frames seen (all devices, not just Flock).
+uint32_t wifi_scanner_mgmt_frames();
