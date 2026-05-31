@@ -9,14 +9,26 @@
 #include "config.h"
 
 #ifdef FD_ENABLE_SD
-// Mounts the card and opens the next free /flock-NNNN.ndjson file.
+
+struct SdlogStatus {
+  bool mounted;
+  bool logging;
+  uint8_t card_type;
+  uint32_t mount_attempts;
+  uint32_t last_speed_hz;
+  int miso_level;  // MISO pin sample at last mount (-1 if unknown)
+  char card_type_name[8];
+  char last_err[24];
+  char path[24];
+};
+
 void sdlog_begin();
-// True if the card mounted and a log file is open.
 bool sdlog_ok();
-// Name of the open log file (or "" if none).
 const char *sdlog_path();
-// Append one line (no trailing newline). Buffered; periodically flushed.
 void sdlog_write(const char *line);
-// Flush the file at the configured interval. Call from loop.
 void sdlog_loop();
+void sdlog_get_status(SdlogStatus *out);
+// Force an immediate remount attempt (UI / debug).
+bool sdlog_retry_mount();
+
 #endif

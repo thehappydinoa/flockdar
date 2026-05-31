@@ -5,7 +5,18 @@
 // for the full pin specification, rationale, and wiring.
 #pragma once
 
-#if defined(CONFIG_IDF_TARGET_ESP32S3)  // ESP32-S3 (esp32-s3-devkitc-1)
+#if defined(FD_BOARD_TDECK)  // T-Deck (esp32-s3-devkitc-1)
+#define FD_OLED_SDA 7  // I2C data  (SSD1306 OLED)
+#define FD_OLED_SCL 21  // I2C clock (SSD1306 OLED)
+#define FD_SD_CS 39  // SPI chip-select (microSD)
+#define FD_SD_SCK 40  // SPI clock       (microSD)
+#define FD_SD_MISO 38  // SPI MISO  (microSD -> ESP)
+#define FD_SD_MOSI 41  // SPI MOSI  (ESP -> microSD)
+#define FD_GPS_RX_PIN 44  // UART RX   (GPS TX -> ESP)
+#define FD_GPS_TX_PIN 43  // UART TX   (ESP -> GPS RX)
+#define FD_GPS_UART 1
+
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)  // ESP32-S3 (esp32-s3-devkitc-1)
 #define FD_OLED_SDA 8  // I2C data  (SSD1306 OLED)
 #define FD_OLED_SCL 9  // I2C clock (SSD1306 OLED)
 #define FD_SD_CS 10  // SPI chip-select (microSD)

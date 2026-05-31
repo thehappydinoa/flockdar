@@ -12,11 +12,12 @@
 #include "protocol.h"
 #include "serial_out.h"
 #include "wifi_scanner.h"
+#include "rf_sightings.h"
 
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
 #endif
-#ifdef FD_ENABLE_OLED
+#if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
 #include "display.h"
 #endif
 #ifdef FD_ENABLE_SD
@@ -31,7 +32,7 @@ void setup() {
 
   g_det_queue = xQueueCreate(64, sizeof(Detection));
 
-#ifdef FD_ENABLE_OLED
+#if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_begin();
 #endif
 #ifdef FD_ENABLE_SD
@@ -41,6 +42,7 @@ void setup() {
   gps_begin();
 #endif
 
+  rf_sightings_begin();
   wifi_scanner_begin();
   ble_scanner_begin();
 
@@ -61,7 +63,7 @@ void loop() {
 #ifdef FD_ENABLE_GPS
   gps_loop();
 #endif
-#ifdef FD_ENABLE_OLED
+#if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_loop();
 #endif
 #ifdef FD_ENABLE_SD
