@@ -16,6 +16,8 @@ struct Entry {
   uint8_t channel;
   uint32_t seen;
   uint32_t last_ms;
+  uint16_t mfgrid;
+  bool has_mfgrid;
 };
 
 Entry s_devs[kMaxDevices];
@@ -49,7 +51,8 @@ int find_oldest_slot() {
 }
 
 void note_device(const uint8_t mac[6], const char *kind, const char *label,
-                 int rssi, uint8_t channel) {
+                 int rssi, uint8_t channel, uint16_t mfgrid = 0,
+                 bool has_mfgrid = false) {
   portENTER_CRITICAL(&s_mux);
   s_events++;
   int idx = find_mac(mac);
@@ -62,10 +65,16 @@ void note_device(const uint8_t mac[6], const char *kind, const char *label,
     strncpy(e.label, label ? label : "", sizeof(e.label) - 1);
     e.channel = channel;
     e.seen = 1;
+    e.mfgrid = mfgrid;
+    e.has_mfgrid = has_mfgrid;
   } else {
     Entry &e = s_devs[idx];
     e.seen++;
     if (label && label[0]) strncpy(e.label, label, sizeof(e.label) - 1);
+    if (has_mfgrid) {
+      e.mfgrid = mfgrid;
+      e.has_mfgrid = true;
+    }
   }
   s_devs[idx].rssi = rssi;
   s_devs[idx].last_ms = millis();
@@ -110,8 +119,10 @@ void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel) {
   note_device(mac, "wifi", "mgmt", rssi, channel);
 }
 
-void rf_sightings_note_ble(const uint8_t mac[6], const char *name, int rssi) {
-  note_device(mac, "ble", name && name[0] ? name : "ble", rssi, 0);
+void rf_sightings_note_ble(const uint8_t mac[6], const char *name, int rssi,
+                           uint16_t mfgrid, bool has_mfgrid) {
+  note_device(mac, "ble", name && name[0] ? name : "ble", rssi, 0, mfgrid,
+              has_mfgrid);
 }
 
 size_t rf_sightings_count() {
@@ -139,11 +150,14 @@ bool rf_sightings_get(size_t index, RfDevice *out) {
   }
   const Entry &e = s_sorted[index];
   mac_to_str(e.mac, out->mac);
+  memcpy(out->mac_raw, e.mac, 6);
   strncpy(out->kind, e.kind, sizeof(out->kind) - 1);
   strncpy(out->label, e.label, sizeof(out->label) - 1);
   out->rssi = e.rssi;
   out->channel = e.channel;
   out->seen = e.seen;
+  out->mfgrid = e.mfgrid;
+  out->has_mfgrid = e.has_mfgrid;
   portEXIT_CRITICAL(&s_mux);
   return true;
 }
