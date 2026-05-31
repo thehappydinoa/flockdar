@@ -7,7 +7,7 @@
 #include "config.h"
 #include "signing.h"
 
-#ifdef FD_ENABLE_OLED
+#if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
 #include "display.h"
 #endif
 #ifdef FD_ENABLE_SD

@@ -1,14 +1,15 @@
-// display.h — optional SSD1306 OLED status (enable with -DFD_ENABLE_OLED).
+// display.h — optional on-device status UI.
+//
+//   -DFD_ENABLE_OLED      SSD1306 (generic dev board)
+//   -DFD_ENABLE_TDECK_UI  LilyGO T-Deck / T-Deck Plus TFT + trackball + keyboard
 #pragma once
 
-#include "config.h"
-
-#ifdef FD_ENABLE_OLED
 #include "protocol.h"
 
+#if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
+
 void display_begin();
-// Record a detection for the on-screen counter / last-MAC line.
 void display_note(const Detection &d);
-// Redraw the screen at the configured interval. Call from loop.
 void display_loop();
+
 #endif

@@ -214,7 +214,9 @@ esp32/
     gps.cpp/.h          GPS NMEA parser (FD_ENABLE_GPS)
     sdlog.cpp/.h        microSD NDJSON logger (FD_ENABLE_SD)
     signing.cpp/.h      HMAC-SHA256 frame signing
-    display.cpp/.h      SSD1306 OLED status (FD_ENABLE_OLED)
+    display.cpp/.h      On-device UI (OLED or T-Deck TFT)
+    tdeck_ui.cpp/.h     T-Deck display + trackball + keyboard (FD_ENABLE_TDECK_UI)
+    tdeck_board.h       LilyGO GPIO constants (factory utilities.h)
     serial_out.cpp/.h   JSON serialisation + signing + output (serial + SD)
 ```
 
