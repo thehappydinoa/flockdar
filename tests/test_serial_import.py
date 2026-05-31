@@ -73,6 +73,14 @@ class TestLineToRecord:
         )
         assert rec["lat"] == 39.9 and rec["lon"] == -75.1
 
+    def test_inline_position_overrides_running(self) -> None:
+        rec, _ = si.line_to_record(
+            {"type": "wifi", "mac": "aa:bb:cc:dd:ee:ff",
+             "lat": 39.9416, "lon": -75.1758, "accuracy": 3.1},
+            {"lat": 40.0, "lon": -74.0},
+        )
+        assert rec["lat"] == 39.9416 and rec["lon"] == -75.1758
+
     def test_non_detection_returns_none(self) -> None:
         assert si.line_to_record({"type": "info"}, {}) is None
 

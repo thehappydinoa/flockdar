@@ -13,6 +13,9 @@
 #ifdef FD_ENABLE_SD
 #include "sdlog.h"
 #endif
+#ifdef FD_ENABLE_GPS
+#include "gps.h"
+#endif
 
 static void mac_to_str(const uint8_t mac[6], char out[18]) {
   snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2],
@@ -71,7 +74,7 @@ void serial_out_info(const char *msg) {
 }
 
 void serial_out_emit(const Detection &d) {
-  char body[384];  // headroom for a fully-escaped name field
+  char body[448];  // headroom for escaped name + GPS fields
   int n = 0;
 
   if (d.kind == DET_GPS) {
@@ -110,6 +113,19 @@ void serial_out_emit(const Detection &d) {
   if (d.has_channel) {
     n += snprintf(body + n, sizeof(body) - n, ",\"channel\":%u", d.channel);
   }
+#ifdef FD_ENABLE_GPS
+  double lat = 0.0;
+  double lon = 0.0;
+  double alt = 0.0;
+  double accuracy = 0.0;
+  if (gps_current(&lat, &lon, &alt, &accuracy)) {
+    n += snprintf(body + n, sizeof(body) - n, ",\"lat\":%.6f,\"lon\":%.6f",
+                  lat, lon);
+    if (accuracy > 0.0) {
+      n += snprintf(body + n, sizeof(body) - n, ",\"accuracy\":%.1f", accuracy);
+    }
+  }
+#endif
   n += snprintf(body + n, sizeof(body) - n, ",\"ts_ms\":%lu}",
                 (unsigned long)d.ts_ms);
 
@@ -119,7 +135,7 @@ void serial_out_emit(const Detection &d) {
   char sig[9];
   hmac_sig(body, (size_t)n, sig);
 
-  char line[416];
+  char line[512];
   // %.*s copies body without its trailing '}'.
   snprintf(line, sizeof(line), "%.*s,\"sig\":\"%s\"}", n - 1, body, sig);
   output_line(line);

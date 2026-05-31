@@ -109,4 +109,23 @@ void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,
   }
 }
 
+bool gps_current(double *lat, double *lon, double *alt, double *accuracy) {
+  if (!s_gps.location.isValid()) {
+    return false;
+  }
+  if (lat) {
+    *lat = s_gps.location.lat();
+  }
+  if (lon) {
+    *lon = s_gps.location.lng();
+  }
+  if (alt) {
+    *alt = s_gps.altitude.isValid() ? s_gps.altitude.meters() : 0.0;
+  }
+  if (accuracy) {
+    *accuracy = s_gps.hdop.isValid() ? s_gps.hdop.hdop() * 2.5 : 0.0;
+  }
+  return true;
+}
+
 #endif  // FD_ENABLE_GPS
