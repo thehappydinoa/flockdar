@@ -46,7 +46,7 @@ void setup() {
   wifi_scanner_begin();
   ble_scanner_begin();
 
-  serial_out_info("flockdar-esp32 online");
+  serial_out_info("online");
 #ifdef FD_ENABLE_SD
   serial_out_info(sdlog_ok() ? "sd log open" : "sd card not found");
 #endif

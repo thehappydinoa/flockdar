@@ -6,6 +6,8 @@
 #ifdef FD_ENABLE_GPS
 void gps_begin();
 void gps_loop();
+// Emit one gps_status line (boot snapshot + periodic debug).
+void gps_serial_status(bool force = false);
 // Snapshot for UI (fix, NMEA activity, satellites).
 void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,
                 uint8_t *sats);

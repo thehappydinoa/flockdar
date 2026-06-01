@@ -6,10 +6,13 @@
 #include <TinyGPSPlus.h>
 
 #include "protocol.h"
+#include "serial_out.h"
 
 static TinyGPSPlus s_gps;
 static HardwareSerial s_serial(FD_GPS_UART);
 static uint32_t s_last_emit = 0;
+static uint32_t s_last_status = 0;
+static bool s_module_present = true;
 
 #if defined(FD_BOARD_TDECK)
 // L76K init (T-Deck Plus integrated GPS). Original T-Deck has no GPS module.
@@ -71,19 +74,38 @@ static bool tdeck_l76k_init() {
 
 void gps_begin() {
 #if defined(FD_BOARD_TDECK)
-  if (!tdeck_l76k_init()) {
+  s_module_present = tdeck_l76k_init();
+  if (!s_module_present) {
     // No L76K — leave UART open for an external module on the Grove port.
     s_serial.begin(FD_GPS_BAUD, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
   }
 #else
   s_serial.begin(FD_GPS_BAUD, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
+  s_module_present = true;
 #endif
+  gps_serial_status(true);
+}
+
+void gps_serial_status(bool force) {
+  uint32_t now = millis();
+  if (!force && now - s_last_status < FD_GPS_STATUS_INTERVAL_MS) {
+    return;
+  }
+  s_last_status = now;
+
+  bool fix = false;
+  uint32_t nmea_chars = 0;
+  uint8_t sats = 0;
+  gps_status(&fix, nullptr, nullptr, &nmea_chars, &sats);
+  serial_out_gps_status(nmea_chars, sats, fix, s_module_present);
 }
 
 void gps_loop() {
   while (s_serial.available()) {
     s_gps.encode(s_serial.read());
   }
+
+  gps_serial_status(false);
 
   uint32_t now = millis();
   if (now - s_last_emit < FD_GPS_EMIT_INTERVAL_MS) return;

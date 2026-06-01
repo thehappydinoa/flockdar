@@ -62,7 +62,13 @@ Newline-delimited JSON at 115200 baud. Each line is one event.
 {"v":1,"type":"ble","method":"name_match","mac":"04:0d:84:00:00:01","name":"FS Ext Battery","rssi":-85,"lat":40.0,"lon":-74.0008,"accuracy":3.1,"ts_ms":1234567892,"sig":"c940..."}
 {"v":1,"type":"ble","method":"mfgrid","mac":"d4:b2:73:00:00:01","name":"1069698414","mfgrid":2504,"rssi":-90,"ts_ms":1234567893,"sig":"d12e..."}
 {"v":1,"type":"gps","lat":40.0016,"lon":-74.0008,"alt":12.3,"accuracy":3.1,"ts_ms":1234567894}
+{"v":1,"type":"info","fw":"0.2.1","msg":"online","ts_ms":100}
+{"v":1,"type":"gps_status","fw":"0.2.1","nmea":842,"sats":4,"fix":false,"module":true,"ts_ms":5000}
 ```
+
+Boot emits an `info` line (with `fw`) and an immediate `gps_status` snapshot.
+While acquiring a fix, `gps_status` repeats every 10 s on serial for debugging
+(`uv run flockdar-ingest COM3 --monitor` on Windows).
 
 When GPS has a fix, `wifi` and `ble` lines include `lat`, `lon`, and (when
 available) `accuracy` stamped at emit time. Lines emitted before the first fix
@@ -74,7 +80,8 @@ Fields:
 | Field | Description |
 |---|---|
 | `v` | Protocol version (currently 1) |
-| `type` | `wifi`, `ble`, or `gps` |
+| `fw` | Firmware version string (`info` and `gps_status` lines) |
+| `type` | `wifi`, `ble`, `gps`, `gps_status`, or `info` |
 | `method` | `probe_request`, `addr1`, `addr2`, `name_match`, `mfgrid` |
 | `mac` | Lowercase colon-separated MAC address |
 | `rssi` | Signal strength in dBm |
