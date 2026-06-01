@@ -33,6 +33,7 @@ class TdeckChrome {
   void paint_page_dots(size_t count, size_t active);
   void paint_chrome_bottom();
   void invalidate_header();
+  void invalidate_footer();
 
   void paint_list_row(int y, bool selected, bool flock_accent, const char *line1,
                       uint8_t font1, const char *line2, uint8_t icon = 255,
@@ -66,6 +67,16 @@ class TdeckChrome {
   bool bat_usb_;
   bool flock_alert_;
   bool header_ok_;
+  char soft_left_[20];
+  char soft_center_[20];
+  char soft_right_[20];
+  char soft_left_key_;
+  char soft_center_key_;
+  char soft_right_key_;
+  bool soft_keys_ok_;
+  size_t dots_count_;
+  size_t dots_active_;
+  bool dots_ok_;
 
   void paint_title_bar(const char *title, int page_idx, bool flock_alert,
                        uint16_t bar_bg);

@@ -149,6 +149,20 @@ def line_to_record(obj: dict[str, Any], pos: dict[str, float]) -> tuple[Record, 
     return None
 
 
+def _parse_json_line(line: str) -> dict[str, Any] | None:
+    """Parse one NDJSON line; tolerate a leading '{' duplicated by USB framing."""
+    for _ in range(3):
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            if line.startswith("{"):
+                line = line[1:]
+                continue
+            return None
+        return obj if isinstance(obj, dict) else None
+    return None
+
+
 def _format_monitor_line(obj: dict[str, Any]) -> str | None:
     """Human-readable line for firmware status events (info/gps/gps_status)."""
     etype = obj.get("type")
@@ -182,14 +196,13 @@ def monitor_stream(lines: Iterable[str]) -> None:
         line = line.strip()
         if not line:
             continue
-        try:
-            obj = json.loads(line)
-        except (json.JSONDecodeError, ValueError):
+        obj = _parse_json_line(line)
+        if obj is None:
             print(f"?? {line}", file=sys.stderr)
             continue
         formatted = _format_monitor_line(obj)
         if formatted:
-            print(formatted)
+            print(formatted, flush=True)
 
 
 # ---------------------------------------------------------------------------

@@ -38,7 +38,17 @@ TdeckChrome::TdeckChrome(TFT_eSPI &tft)
       bat_mv_(0),
       bat_usb_(false),
       flock_alert_(false),
-      header_ok_(false) {}
+      header_ok_(false),
+      soft_left_{0},
+      soft_center_{0},
+      soft_right_{0},
+      soft_left_key_(0),
+      soft_center_key_(0),
+      soft_right_key_(0),
+      soft_keys_ok_(false),
+      dots_count_(SIZE_MAX),
+      dots_active_(SIZE_MAX),
+      dots_ok_(false) {}
 
 uint8_t TdeckChrome::battery_percent(uint16_t mv) {
   if (mv >= 4200) return 100;
@@ -53,6 +63,16 @@ void TdeckChrome::invalidate_header() {
   bat_mv_ = 0;
   bat_usb_ = false;
   flock_alert_ = false;
+  invalidate_footer();
+}
+
+void TdeckChrome::invalidate_footer() {
+  soft_keys_ok_ = false;
+  soft_left_[0] = soft_center_[0] = soft_right_[0] = '\0';
+  soft_left_key_ = soft_center_key_ = soft_right_key_ = 0;
+  dots_ok_ = false;
+  dots_count_ = SIZE_MAX;
+  dots_active_ = SIZE_MAX;
 }
 
 void TdeckChrome::paint_header_background(bool flock_alert) {
@@ -277,26 +297,47 @@ void TdeckChrome::paint_soft_key_label(int x, int y, uint8_t datum,
 void TdeckChrome::paint_soft_keys(const char *left, char left_key,
                                   const char *center, char center_key,
                                   const char *right, char right_key) {
+  left = left ? left : "";
+  center = center ? center : "";
+  right = right ? right : "";
+  if (soft_keys_ok_ && soft_left_key_ == left_key &&
+      soft_center_key_ == center_key && soft_right_key_ == right_key &&
+      strcmp(soft_left_, left) == 0 && strcmp(soft_center_, center) == 0 &&
+      strcmp(soft_right_, right) == 0) {
+    return;
+  }
+
   const int y = tft_.height() - kFooterH;
   tft_.fillRect(0, y, tft_.width(), kFooterH, kSurface);
   tft_.drawFastHLine(0, y, tft_.width(), kDivider);
 
   const int text_y = y + kSoftKeyTextY;
-  if (left && left[0]) {
+  if (left[0]) {
     paint_soft_key_label(4, text_y, TL_DATUM, left, left_key);
   }
-  if (center && center[0]) {
+  if (center[0]) {
     paint_soft_key_label(tft_.width() / 2, text_y, TC_DATUM, center,
                          center_key);
   }
-  if (right && right[0]) {
+  if (right[0]) {
     paint_soft_key_label(tft_.width() - 4, text_y, TR_DATUM, right,
                          right_key);
   }
+
+  strncpy(soft_left_, left, sizeof(soft_left_) - 1);
+  strncpy(soft_center_, center, sizeof(soft_center_) - 1);
+  strncpy(soft_right_, right, sizeof(soft_right_) - 1);
+  soft_left_key_ = left_key;
+  soft_center_key_ = center_key;
+  soft_right_key_ = right_key;
+  soft_keys_ok_ = true;
 }
 
 void TdeckChrome::paint_page_dots(size_t count, size_t active) {
   if (count == 0) return;
+  if (dots_ok_ && dots_count_ == count && dots_active_ == active) {
+    return;
+  }
   constexpr int kGap = 10;
   const int y = tft_.height() - kFooterH - kDotBandH / 2;
   const int active_r = 3;
@@ -313,6 +354,9 @@ void TdeckChrome::paint_page_dots(size_t count, size_t active) {
     }
     x += step;
   }
+  dots_count_ = count;
+  dots_active_ = active;
+  dots_ok_ = true;
 }
 
 void TdeckChrome::paint_list_row(int y, bool selected, bool flock_accent,
