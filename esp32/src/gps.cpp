@@ -13,48 +13,59 @@ static uint32_t s_last_emit = 0;
 
 #if defined(FD_BOARD_TDECK)
 // L76K init (T-Deck Plus integrated GPS). Original T-Deck has no GPS module.
+//
+// Configures the L76K to acquire a fix worldwide. Commands match Meshtastic's
+// L76K sequence (src/gps/GPS.cpp):
+//   PCAS04,7  GPS + GLONASS + BeiDou (worldwide; was ,5 = GPS+GLONASS, which
+//             dropped BeiDou and slowed time-to-fix outside its coverage)
+//   PCAS03    output only RMC + GGA — at 9600 baud, enabling all 10 sentence
+//             types floods the link and can starve the position sentences
+//   PCAS11,3  vehicle navigation mode
+//
+// IMPORTANT: the config is sent UNCONDITIONALLY. The previous version gated the
+// enable commands behind an exact "$GPTXT,01,01,02" version reply; when that
+// probe didn't match (firmware-rev difference or a fragmented read) the module
+// was never told to emit position sentences, so it produced NMEA chatter but
+// never a fix — the classic "stuck at acquiring". The version probe is kept
+// only to drain boot noise and confirm the module is present.
 static bool tdeck_l76k_init() {
   s_serial.begin(FD_GPS_BAUD, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
-  for (int attempt = 0; attempt < 3; attempt++) {
-    s_serial.write("$PCAS03,0,0,0,0,0,0,0,0,0,0,,,0,0*02\r\n");
-    delay(5);
-    uint32_t drain_until = millis() + 500;
-    while (millis() < drain_until) {
-      while (s_serial.available()) {
-        s_serial.read();
-      }
-      delay(1);
+  delay(100);
+
+  // Drain power-on banner / boot noise so the parser starts clean.
+  uint32_t drain_until = millis() + 300;
+  bool saw_any = false;
+  while (millis() < drain_until) {
+    while (s_serial.available()) {
+      s_serial.read();
+      saw_any = true;
     }
-    s_serial.flush();
-    delay(100);
-    s_serial.write("$PCAS06,0*1B\r\n");
-    uint32_t wait = millis() + 500;
-    while (!s_serial.available() && millis() < wait) {
-      delay(1);
-    }
-    if (!s_serial.available()) {
-      continue;
-    }
-    char ver[64];
-    size_t n = 0;
-    while (s_serial.available() && n + 1 < sizeof(ver)) {
-      int c = s_serial.read();
-      if (c < 0) break;
-      if (c == '\n') break;
-      ver[n++] = (char)c;
-    }
-    ver[n] = '\0';
-    if (strncmp(ver, "$GPTXT,01,01,02", 15) == 0) {
-      s_serial.write("$PCAS04,5*1C\r\n");
-      delay(100);
-      s_serial.write("$PCAS03,1,1,1,1,1,1,1,1,1,1,,,0,0*02\r\n");
-      delay(100);
-      s_serial.write("$PCAS11,3*1E\r\n");
-      return true;
-    }
-    delay(200);
+    delay(1);
   }
-  return false;
+
+  // Probe for a reply so we can report module presence (does NOT gate config).
+  s_serial.write("$PCAS06,0*1B\r\n");
+  uint32_t wait = millis() + 500;
+  while (!s_serial.available() && millis() < wait) {
+    delay(1);
+  }
+  bool present = saw_any || s_serial.available();
+  // Drain the probe response.
+  uint32_t resp_until = millis() + 100;
+  while (millis() < resp_until) {
+    while (s_serial.available()) s_serial.read();
+    delay(1);
+  }
+
+  // Apply configuration regardless of the probe outcome.
+  s_serial.write("$PCAS04,7*1E\r\n");                       // GPS+GLONASS+BeiDou
+  delay(100);
+  s_serial.write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n");  // RMC + GGA only
+  delay(100);
+  s_serial.write("$PCAS11,3*1E\r\n");                       // vehicle mode
+  delay(100);
+  s_serial.flush();
+  return present;
 }
 #endif
 
