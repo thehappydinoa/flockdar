@@ -224,9 +224,11 @@ time and streams them to this tool:
 - **microSD logging** — untethered wardriving to `flock-NNNN.ndjson`, replayed
   with `uv run flockdar flock-0001.ndjson`
 
-See [`esp32/README.md`](esp32/README.md) for hardware, output format, and build
-envs, and [SETUP.md](SETUP.md) for the toolchain install. `gen_oui_header.py`
-generates the C signature header from `signatures.py` so the lists stay in sync.
+See [`esp32/BOARDS.md`](esp32/BOARDS.md) for **per-board build and flash**
+(including [T-Deck](esp32/BOARDS.md#lilygo-t-deck--t-deck-plus-envt-deck)),
+[`esp32/README.md`](esp32/README.md) for protocol and hardware notes, and
+[SETUP.md](SETUP.md) for the toolchain install. `gen_oui_header.py` generates
+the C signature header from `signatures.py` so the lists stay in sync.
 
 ---
 

@@ -21,9 +21,11 @@ uv run esp32/pin_spec.py gen                 # regenerate esp32/src/pins.h
 uv build                                     # build sdist + wheel into dist/ (PyPI)
 
 cd esp32 && pio run -e esp32-s3 -t upload    # build + flash firmware (PlatformIO)
+cd esp32 && pio run -e t-deck -t upload      # LilyGO T-Deck (see esp32/BOARDS.md)
 ```
 
-Per-OS toolchain setup (uv, PlatformIO, serial drivers) is in `SETUP.md`.
+Per-board build guides: `esp32/BOARDS.md`. Per-OS toolchain (uv, PlatformIO,
+serial drivers): `SETUP.md`.
 
 ## Architecture
 
