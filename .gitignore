@@ -228,6 +228,7 @@ __marimo__/
 *.db
 *.csv.gz
 *.json*
+*.ndjson
 *.csv
 
 # Cursor debug-mode / upload diagnostic logs

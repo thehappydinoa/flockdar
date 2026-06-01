@@ -12,6 +12,9 @@ void serial_out_emit(const Detection &d);
 // Emit a free-form info line (unsigned). Used for the boot banner.
 void serial_out_info(const char *msg);
 
+// USB serial only — does not mirror to the SD log (used for sd dump replay).
+void serial_out_raw(const char *line);
+
 #ifdef FD_ENABLE_GPS
 // Periodic GPS debug snapshot (unsigned). See README "gps_status" line type.
 void serial_out_gps_status(uint32_t nmea_chars, uint8_t sats, bool fix,

@@ -28,6 +28,14 @@ static uint32_t s_last_speed_hz = 0;
 static uint8_t s_card_type = CARD_NONE;
 static int s_miso_level = -1;
 
+static bool s_host_busy = false;
+static bool s_dumping = false;
+static bool s_dump_resume_log = false;
+static File s_dump_file;
+static char s_dump_path[32] = "";
+static uint32_t s_dump_lines = 0;
+static uint32_t s_dump_bytes = 0;
+
 static void set_err(const char *msg) {
   strncpy(s_last_err, msg, sizeof(s_last_err) - 1);
   s_last_err[sizeof(s_last_err) - 1] = '\0';
@@ -165,7 +173,7 @@ bool sdlog_retry_mount() {
 }
 
 void sdlog_write(const char *line) {
-  if (!s_ok) return;
+  if (!s_ok || s_host_busy) return;
 #if defined(FD_ENABLE_TDECK_UI)
   tdeck_spi_release();
 #endif
@@ -190,6 +198,263 @@ void sdlog_loop() {
   s_file.flush();
   s_last_flush = now;
   s_dirty = false;
+}
+
+static bool flock_path_valid(const char *path) {
+  if (!path || strncmp(path, "/flock-", 7) != 0) {
+    return false;
+  }
+  const char *dot = strrchr(path, '.');
+  return dot && strcmp(dot, ".ndjson") == 0;
+}
+
+static int flock_path_num(const char *path) {
+  int n = -1;
+  if (path) {
+    sscanf(path, "/flock-%d.ndjson", &n);
+  }
+  return n;
+}
+
+static void sd_bus_release() {
+#if defined(FD_ENABLE_TDECK_UI)
+  tdeck_spi_release();
+#endif
+}
+
+void sdlog_list() {
+  if (s_dumping) {
+    serial_out_info("sd list fail: busy");
+    return;
+  }
+  if (!s_ok && !mount_and_open(false)) {
+    serial_out_info("sd list fail: not mounted");
+    return;
+  }
+
+  sd_bus_release();
+  File root = SD.open("/");
+  if (!root) {
+    serial_out_info("sd list fail: open /");
+    return;
+  }
+
+  serial_out_info("sd list begin");
+  s_host_busy = true;
+  int count = 0;
+  while (true) {
+    File entry = root.openNextFile();
+    if (!entry) break;
+    const char *name = entry.name();
+    char path[32];
+    if (name[0] == '/') {
+      strncpy(path, name, sizeof(path) - 1);
+    } else {
+      snprintf(path, sizeof(path), "/%s", name);
+    }
+    path[sizeof(path) - 1] = '\0';
+    if (flock_path_valid(path)) {
+      char msg[64];
+      snprintf(msg, sizeof(msg), "sd file %s %lu", path,
+               (unsigned long)entry.size());
+      serial_out_info(msg);
+      count++;
+    }
+    entry.close();
+  }
+  root.close();
+
+  char done[32];
+  snprintf(done, sizeof(done), "sd list end %d", count);
+  serial_out_info(done);
+  s_host_busy = false;
+}
+
+static void resolve_dump_path(const char *arg, char *out, size_t outsz) {
+  out[0] = '\0';
+  if (arg && arg[0] && strcmp(arg, "last") != 0) {
+    if (arg[0] == '/') {
+      strncpy(out, arg, outsz - 1);
+    } else {
+      snprintf(out, outsz, "/%s", arg);
+    }
+    out[outsz - 1] = '\0';
+    return;
+  }
+
+  const int current = s_ok ? flock_path_num(s_path) : -1;
+  int best_n = -1;
+  for (int i = 1; i < 10000; i++) {
+    char p[24];
+    snprintf(p, sizeof(p), "/flock-%04d.ndjson", i);
+    if (!SD.exists(p)) {
+      continue;
+    }
+    if (strcmp(arg, "last") == 0 && s_ok && i == current) {
+      continue;
+    }
+    if (i > best_n) {
+      best_n = i;
+    }
+  }
+  if (best_n >= 0) {
+    snprintf(out, outsz, "/flock-%04d.ndjson", best_n);
+    return;
+  }
+  if (s_ok) {
+    strncpy(out, s_path, outsz - 1);
+    out[outsz - 1] = '\0';
+  }
+}
+
+bool sdlog_host_busy() { return s_host_busy; }
+
+// --- chunked SD dump (yields to main loop; host can abort) -----------------
+
+static void sdlog_resume_write_log() {
+  if (!s_dump_resume_log) {
+    return;
+  }
+  s_dump_resume_log = false;
+  s_file = SD.open(s_path, FILE_APPEND);
+  if (!s_file) {
+    s_ok = false;
+    set_err("reopen fail");
+  } else {
+    s_ok = true;
+  }
+}
+
+void sdlog_dump_abort() {
+  if (!s_dumping) {
+    return;
+  }
+  s_dump_file.close();
+  s_dumping = false;
+  s_host_busy = false;
+  sdlog_resume_write_log();
+  serial_out_info("sd dump aborted");
+}
+
+static void sdlog_pause_write_log() {
+  if (!s_ok) {
+    return;
+  }
+  sd_bus_release();
+  s_file.flush();
+  s_file.close();
+  s_dump_resume_log = true;
+  s_ok = false;
+}
+
+bool sdlog_dump(const char *path) {
+  if (s_dumping) {
+    serial_out_info("sd dump fail: busy");
+    return false;
+  }
+  if (!s_ok && !mount_and_open(false)) {
+    serial_out_info("sd dump fail: not mounted");
+    return false;
+  }
+
+  char target[32];
+  resolve_dump_path(path, target, sizeof(target));
+  if (!flock_path_valid(target)) {
+    serial_out_info("sd dump fail: no file");
+    return false;
+  }
+  if (!SD.exists(target)) {
+    serial_out_info("sd dump fail: not found");
+    return false;
+  }
+
+  sd_bus_release();
+  sdlog_pause_write_log();
+
+  s_dump_file = SD.open(target, FILE_READ);
+  if (!s_dump_file) {
+    serial_out_info("sd dump fail: open");
+    sdlog_resume_write_log();
+    return false;
+  }
+
+  s_dump_bytes = s_dump_file.size();
+  strncpy(s_dump_path, target, sizeof(s_dump_path) - 1);
+  s_dump_path[sizeof(s_dump_path) - 1] = '\0';
+  s_dump_lines = 0;
+  s_dumping = true;
+  s_host_busy = true;
+
+  char ack[72];
+  snprintf(ack, sizeof(ack), "sd dump ack %s %lu", target,
+           (unsigned long)s_dump_bytes);
+  serial_out_info(ack);
+
+  char hdr[72];
+  snprintf(hdr, sizeof(hdr), "sd dump begin %s %lu", target,
+           (unsigned long)s_dump_bytes);
+  serial_out_info(hdr);
+  return true;
+}
+
+bool sdlog_dump_poll() {
+  if (!s_dumping) {
+    return false;
+  }
+
+  static char batch[3072];
+  size_t batch_n = 0;
+
+  auto flush_batch = [&]() {
+    if (batch_n > 0) {
+      Serial.write((const uint8_t *)batch, batch_n);
+      batch_n = 0;
+    }
+  };
+
+  auto emit_line = [&](const char *line, size_t len) {
+    if (len == 0) {
+      return;
+    }
+    if (batch_n + len + 1 > sizeof(batch)) {
+      flush_batch();
+    }
+    if (len + 1 > sizeof(batch)) {
+      Serial.write((const uint8_t *)line, len);
+      Serial.write('\n');
+      return;
+    }
+    memcpy(batch + batch_n, line, len);
+    batch_n += len;
+    batch[batch_n++] = '\n';
+  };
+
+  const uint32_t until = millis() + 40;
+  while (millis() < until && s_dump_file.available()) {
+    String row = s_dump_file.readStringUntil('\n');
+    row.trim();
+    if (row.length() == 0) {
+      continue;
+    }
+    emit_line(row.c_str(), (size_t)row.length());
+    s_dump_lines++;
+  }
+  flush_batch();
+
+  if (s_dump_file.available()) {
+    return true;
+  }
+
+  s_dump_file.close();
+  s_dumping = false;
+  s_host_busy = false;
+
+  char done[56];
+  snprintf(done, sizeof(done), "sd dump end %s %lu", s_dump_path,
+           (unsigned long)s_dump_lines);
+  serial_out_info(done);
+  sdlog_resume_write_log();
+  return false;
 }
 
 #endif  // FD_ENABLE_SD
