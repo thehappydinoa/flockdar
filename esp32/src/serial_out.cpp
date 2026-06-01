@@ -71,24 +71,27 @@ void serial_out_raw(const char *line) {
 }
 
 void serial_out_info(const char *msg) {
-  char line[192];
+  char esc[128];
+  json_escape(msg, esc, sizeof(esc));
+  char line[224];
   snprintf(line, sizeof(line),
            "{\"v\":%d,\"type\":\"info\",\"fw\":\"%s\",\"msg\":\"%s\","
            "\"ts_ms\":%lu}",
-           FD_PROTO_VERSION, FD_FW_VERSION, msg, (unsigned long)millis());
+           FD_PROTO_VERSION, FD_FW_VERSION, esc, (unsigned long)millis());
   output_line(line);
 }
 
 #ifdef FD_ENABLE_GPS
 void serial_out_gps_status(uint32_t nmea_chars, uint8_t sats, bool fix,
-                           bool module) {
-  char line[192];
+                           bool module, const char *chip) {
+  char line[224];
   snprintf(line, sizeof(line),
            "{\"v\":%d,\"type\":\"gps_status\",\"fw\":\"%s\",\"nmea\":%lu,"
-           "\"sats\":%u,\"fix\":%s,\"module\":%s,\"ts_ms\":%lu}",
+           "\"sats\":%u,\"fix\":%s,\"module\":%s,\"chip\":\"%s\","
+           "\"ts_ms\":%lu}",
            FD_PROTO_VERSION, FD_FW_VERSION, (unsigned long)nmea_chars,
            (unsigned)sats, fix ? "true" : "false", module ? "true" : "false",
-           (unsigned long)millis());
+           chip ? chip : "unknown", (unsigned long)millis());
   output_line(line);
 }
 #endif
@@ -100,9 +103,9 @@ void serial_out_emit(const Detection &d) {
   if (d.kind == DET_GPS) {
     // GPS lines are unsigned (no sig field) per the protocol.
     snprintf(body, sizeof(body),
-             "{\"v\":%d,\"type\":\"gps\",\"lat\":%.6f,\"lon\":%.6f,"
+             "{\"v\":%d,\"type\":\"gps\",\"fw\":\"%s\",\"lat\":%.6f,\"lon\":%.6f,"
              "\"alt\":%.1f,\"accuracy\":%.1f,\"ts_ms\":%lu}",
-             FD_PROTO_VERSION, d.lat, d.lon, d.alt, d.accuracy,
+             FD_PROTO_VERSION, FD_FW_VERSION, d.lat, d.lon, d.alt, d.accuracy,
              (unsigned long)d.ts_ms);
     output_line(body);
     return;

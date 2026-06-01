@@ -16,7 +16,7 @@
 #define FD_SERIAL_BAUD 115200
 // Bump when flashing to confirm the new build is running (shown on boot + status).
 #ifndef FD_FW_VERSION
-#define FD_FW_VERSION "0.2.5"
+#define FD_FW_VERSION "0.3.0"
 #endif
 
 // HMAC-SHA256 key shared with the Python receiver so it can reject forged or
@@ -68,6 +68,6 @@
 #define FD_GPS_EMIT_INTERVAL_MS 5000
 #endif
 #ifndef FD_GPS_STATUS_INTERVAL_MS
-#define FD_GPS_STATUS_INTERVAL_MS 10000  // unsigned gps_status lines for serial debug
+#define FD_GPS_STATUS_INTERVAL_MS 30000
 #endif
 #endif  // FD_ENABLE_GPS

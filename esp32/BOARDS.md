@@ -39,6 +39,24 @@ Nearby carousel) plus HMAC-signed NDJSON on USB and optional SD logs.
 - SD files: `/flock-0001.ndjson`, … (FAT32 card, 32 GB or less recommended)
 - USB serial at **115200** baud for `flockdar --serial` or `flockdar-ingest`
 
+### GPS (T-Deck Plus only)
+
+Two factory GPS modules exist — firmware **0.3.0+** probes both:
+
+| Module | Default baud | Init |
+|--------|--------------|------|
+| Quectel **L76K** | 9600 | `$PCAS…` (Meshtastic / LilyGO sequence) |
+| u-blox **M10Q** | **38400** | UBX factory clear + GGA/RMC enable (LilyGO `GPSShield.ino`) |
+
+If Meshtastic or another stack reconfigured the chip, init tries u-blox at 38400
+then 9600. `gps_status` lines include `"chip":"l76k"` or `"ublox"`. Wrong init
+(e.g. PCAS on an M10) shows rising `nmea` with no fix.
+
+Debug: `uv run flockdar-ingest COM4 --monitor` (look for `gps chip ublox @38400`).
+
+Force u-blox-only probe: add `-DFD_GPS_UBLOX_ONLY` to `platformio.ini` `[env:t-deck]`
+`build_flags` if you know you have an M10.
+
 ### Prerequisites
 
 1. **PlatformIO** — from repo root:

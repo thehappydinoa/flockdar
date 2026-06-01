@@ -35,7 +35,10 @@ def test_found_expected_commands() -> None:
     # The worldwide GNSS-mode command and RMC+GGA output config must be present.
     assert any(b.startswith("PCAS04,7") for b in bodies), "expected PCAS04,7 (worldwide)"
     assert any(b.startswith("PCAS03,") for b in bodies), "expected a PCAS03 output config"
-    assert len(bodies) >= 3
+    assert any(b.startswith("PCAS10,3") for b in bodies), "expected factory reset"
+    assert any(b.startswith("PCAS02,1000") for b in bodies), "expected 1 Hz rate"
+    assert any(b.startswith("PUBX,40,GGA") for b in bodies), "expected u-blox PUBX GGA"
+    assert len(bodies) >= 10
 
 
 def test_all_nmea_checksums_valid() -> None:

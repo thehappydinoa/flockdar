@@ -24,7 +24,7 @@ from flockdar.enrich import (
     load_config,
     save_config,
 )
-from tests.conftest import make_hit, make_kmz
+from tests.conftest import MAC_EX, MAC_FLOCK_CAM, make_hit, make_kmz
 
 
 # ---------------------------------------------------------------------------
@@ -66,16 +66,16 @@ class TestBoundedCache:
 
 class TestDistM:
     def test_same_point_is_zero(self) -> None:
-        assert _dist_m(39.94, -75.17, 39.94, -75.17) == pytest.approx(0.0)
+        assert _dist_m(40.0, -74.0, 40.0, -74.0) == pytest.approx(0.0)
 
     def test_known_distance(self) -> None:
         # ~111 m per 0.001 degree lat at this latitude
-        d = _dist_m(39.94000, -75.17, 39.94100, -75.17)
+        d = _dist_m(40.00000, -74.0, 40.00100, -74.0)
         assert 100 < d < 120
 
     def test_symmetry(self) -> None:
-        d1 = _dist_m(39.94, -75.17, 39.96, -75.19)
-        d2 = _dist_m(39.96, -75.19, 39.94, -75.17)
+        d1 = _dist_m(40.0, -74.0, 40.02, -74.02)
+        d2 = _dist_m(40.02, -74.02, 40.0, -74.0)
         assert d1 == pytest.approx(d2)
 
 
@@ -145,13 +145,13 @@ class TestOverpassEnricher:
 
     async def test_no_nearby_nodes_returns_empty(self) -> None:
         e = OverpassEnricher(transport=_overpass_transport([]))
-        result = await e.enrich(make_hit(lat=39.94, lon=-75.17))
+        result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         assert result == []
 
     async def test_nearby_node_returns_signal(self) -> None:
-        nodes = [{"id": 1, "lat": 39.9401, "lon": -75.1701, "tags": {"name": "Cam1"}}]
+        nodes = [{"id": 1, "lat": 40.0001, "lon": -74.0001, "tags": {"name": "Cam1"}}]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
-        result = await e.enrich(make_hit(lat=39.94, lon=-75.17))
+        result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         assert len(result) == 1
         label, detail = result[0]
         assert label == "OSM_ALPR_NEARBY"
@@ -159,11 +159,11 @@ class TestOverpassEnricher:
 
     async def test_includes_operator_in_detail(self) -> None:
         nodes = [{
-            "id": 2, "lat": 39.9401, "lon": -75.1701,
+            "id": 2, "lat": 40.0001, "lon": -74.0001,
             "tags": {"name": "Cam2", "operator": "Flock Safety"},
         }]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
-        result = await e.enrich(make_hit(lat=39.94, lon=-75.17))
+        result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         label, detail = result[0]
         assert "Flock Safety" in detail
 
@@ -177,23 +177,23 @@ class TestOverpassEnricher:
 
         transport = httpx.MockTransport(handler)
         e = OverpassEnricher(transport=transport)
-        hit = make_hit(lat=39.94001, lon=-75.17001)
+        hit = make_hit(lat=40.00001, lon=-74.00001)
         await e.enrich(hit)
         await e.enrich(hit)  # second call — should hit cache
         assert call_count == 1
 
     async def test_http_error_returns_empty(self) -> None:
         e = OverpassEnricher(transport=_overpass_error_transport())
-        result = await e.enrich(make_hit(lat=39.94, lon=-75.17))
+        result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         assert result == []
 
     async def test_closest_node_is_returned(self) -> None:
         nodes = [
-            {"id": 1, "lat": 39.9402, "lon": -75.1702, "tags": {"name": "Near"}},
-            {"id": 2, "lat": 39.9500, "lon": -75.1800, "tags": {"name": "Far"}},
+            {"id": 1, "lat": 40.0002, "lon": -74.0002, "tags": {"name": "Near"}},
+            {"id": 2, "lat": 40.0100, "lon": -74.0100, "tags": {"name": "Far"}},
         ]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
-        result = await e.enrich(make_hit(lat=39.94, lon=-75.17))
+        result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         _, detail = result[0]
         assert "Near" in detail
 
@@ -207,7 +207,7 @@ class TestALPRWatchEnricher:
         cameras = ALPRWatchEnricher._parse_kmz(sample_kmz_path)
         assert len(cameras) == 3
         lats = [c[0] for c in cameras]
-        assert pytest.approx(39.9416, abs=1e-4) in lats
+        assert pytest.approx(40.0016, abs=1e-4) in lats
 
     def test_parse_kmz_empty_returns_empty(self, tmp_path: Path) -> None:
         kmz = tmp_path / "empty.kmz"
@@ -235,8 +235,8 @@ class TestALPRWatchEnricher:
         e = ALPRWatchEnricher(radius_m=500.0)
         e._loaded = True
         e._cameras = ALPRWatchEnricher._parse_kmz(sample_kmz_path)
-        # Camera A is at (39.9416, -75.1758) — hit is very close
-        result = await e.enrich(make_hit(lat=39.9417, lon=-75.1759))
+        # Camera A is at (40.0016, -74.0008) — hit is very close
+        result = await e.enrich(make_hit(lat=40.0017, lon=-74.0009))
         assert len(result) == 1
         label, detail = result[0]
         assert label == "ALPRWATCH_NEARBY"
@@ -247,7 +247,7 @@ class TestALPRWatchEnricher:
         e._loaded = True
         e._cameras = ALPRWatchEnricher._parse_kmz(sample_kmz_path)
         # All sample cameras are >500m from this hit — nothing within 50m
-        result = await e.enrich(make_hit(lat=39.94, lon=-75.17))
+        result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         assert len(result) == 0
 
     async def test_load_guard_prevents_double_download(
@@ -265,8 +265,8 @@ class TestALPRWatchEnricher:
 
         e = ALPRWatchEnricher()
         # Simulate two concurrent enrichment calls
-        hit = make_hit(lat=39.9417, lon=-75.1759)
-        await enrich_hits_async([hit, make_hit(lat=39.9418, lon=-75.1760)], [e])
+        hit = make_hit(lat=40.0017, lon=-74.0009)
+        await enrich_hits_async([hit, make_hit(lat=40.0018, lon=-74.0010)], [e])
         assert call_count == 1  # downloaded only once despite concurrent calls
 
 
@@ -286,13 +286,13 @@ class TestWiGLEEnricher:
             "results": [{
                 "firsttime": "2024-01-15T12:00:00Z",
                 "lasttime":  "2025-06-01T08:00:00Z",
-                "trilat": "39.94",
-                "trilong": "-75.17",
+                "trilat": "40.0",
+                "trilong": "-74.0",
                 "locationData": [{"total": 42}],
             }]
         }
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(200, body))
-        result = await e.enrich(make_hit(mac="70:c9:4e:79:e7:66"))
+        result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
         assert len(result) == 1
         label, detail = result[0]
         assert label == "WIGLE_SEEN"
@@ -301,12 +301,12 @@ class TestWiGLEEnricher:
 
     async def test_not_found_404(self) -> None:
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(404, {}))
-        result = await e.enrich(make_hit(mac="70:c9:4e:79:e7:66"))
+        result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
         assert result == [("WIGLE_NOT_FOUND", "not in WiGLE DB")]
 
     async def test_empty_results(self) -> None:
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(200, {"results": []}))
-        result = await e.enrich(make_hit(mac="70:c9:4e:79:e7:66"))
+        result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
         assert result == [("WIGLE_NOT_FOUND", "no results")]
 
     async def test_no_mac_returns_empty(self) -> None:
@@ -344,8 +344,8 @@ class TestWiGLEEnricher:
         enrich_mod._WIGLE_RATELIM = 0.05
         try:
             e = WiGLEEnricher("n", "t", transport=httpx.MockTransport(handler))
-            hit1 = make_hit(mac="aa:bb:cc:00:00:01")
-            hit2 = make_hit(mac="aa:bb:cc:00:00:02")
+            hit1 = make_hit(mac="02:00:00:00:00:05")
+            hit2 = make_hit(mac="02:00:00:00:00:06")
             await enrich_hits_async([hit1, hit2], [e])
         finally:
             enrich_mod._WIGLE_RATELIM = original
@@ -375,8 +375,8 @@ class TestEnrichHitsAsync:
         assert len(called) == 3
 
     async def test_signals_added_in_place(self) -> None:
-        hit = make_hit(lat=39.94, lon=-75.17)
-        nodes = [{"id": 1, "lat": 39.9401, "lon": -75.1701, "tags": {"name": "TestCam"}}]
+        hit = make_hit(lat=40.0, lon=-74.0)
+        nodes = [{"id": 1, "lat": 40.0001, "lon": -74.0001, "tags": {"name": "TestCam"}}]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
         await enrich_hits_async([hit], [e])
         labels = {l for l, _ in hit.signals}
@@ -387,7 +387,7 @@ class TestEnrichHitsAsync:
             async def enrich(self, hit):
                 raise RuntimeError("boom")
 
-        hit = make_hit(lat=39.94, lon=-75.17)
+        hit = make_hit(lat=40.0, lon=-74.0)
         # Should not raise
         await enrich_hits_async([hit], [BrokenEnricher()])
 

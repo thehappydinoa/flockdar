@@ -7,6 +7,7 @@ from hashlib import sha256
 
 from flockdar import detect
 from flockdar import serial_import as si
+from tests.conftest import EX_LAT, EX_LAT_A, EX_LON, EX_LON_A, MAC_EX, MAC_FLOCK_CAM, MAC_MFGRID
 
 KEY = b"test-key"
 
@@ -18,12 +19,12 @@ def sign(payload: str) -> str:
 
 
 WIFI_PAYLOAD = (
-    '{"v":1,"type":"wifi","method":"addr2","mac":"70:c9:4e:79:e7:66",'
-    '"oui":"70:c9:4e","rssi":-72,"channel":6,"ts_ms":123}'
+    f'{{"v":1,"type":"wifi","method":"addr2","mac":"{MAC_FLOCK_CAM}",'
+    f'"oui":"70:c9:4e","rssi":-72,"channel":6,"ts_ms":123}}'
 )
 BLE_PAYLOAD = (
-    '{"v":1,"type":"ble","method":"mfgrid","mac":"d4:b2:73:d1:ef:3d",'
-    '"name":"Penguin-1069698414","mfgrid":2504,"rssi":-90,"ts_ms":456}'
+    f'{{"v":1,"type":"ble","method":"mfgrid","mac":"{MAC_MFGRID}",'
+    f'"name":"Penguin-1069698414","mfgrid":2504,"rssi":-90,"ts_ms":456}}'
 )
 
 
@@ -48,7 +49,7 @@ class TestVerifyLine:
 class TestLineToRecord:
     def test_wifi_channel_to_mhz(self) -> None:
         rec, method = si.line_to_record(
-            {"type": "wifi", "method": "addr1", "mac": "aa:bb:cc:dd:ee:ff",
+            {"type": "wifi", "method": "addr1", "mac": MAC_EX,
              "rssi": -60, "channel": 6},
             {"lat": 0.0, "lon": 0.0},
         )
@@ -58,7 +59,7 @@ class TestLineToRecord:
 
     def test_ble_name_and_mfgrid(self) -> None:
         rec, _ = si.line_to_record(
-            {"type": "ble", "method": "mfgrid", "mac": "aa:bb:cc:dd:ee:ff",
+            {"type": "ble", "method": "mfgrid", "mac": MAC_EX,
              "name": "FS Ext Battery", "mfgrid": 2504, "rssi": -88},
             {"lat": 0.0, "lon": 0.0},
         )
@@ -68,18 +69,18 @@ class TestLineToRecord:
 
     def test_position_inherited(self) -> None:
         rec, _ = si.line_to_record(
-            {"type": "wifi", "mac": "aa:bb:cc:dd:ee:ff"},
-            {"lat": 39.9, "lon": -75.1},
+            {"type": "wifi", "mac": MAC_EX},
+            {"lat": 40.1, "lon": -74.1},
         )
-        assert rec["lat"] == 39.9 and rec["lon"] == -75.1
+        assert rec["lat"] == 40.1 and rec["lon"] == -74.1
 
     def test_inline_position_overrides_running(self) -> None:
         rec, _ = si.line_to_record(
-            {"type": "wifi", "mac": "aa:bb:cc:dd:ee:ff",
-             "lat": 39.9416, "lon": -75.1758, "accuracy": 3.1},
-            {"lat": 40.0, "lon": -74.0},
+            {"type": "wifi", "mac": MAC_EX,
+             "lat": EX_LAT_A, "lon": EX_LON_A, "accuracy": 3.1},
+            {"lat": EX_LAT, "lon": EX_LON},
         )
-        assert rec["lat"] == 39.9416 and rec["lon"] == -75.1758
+        assert rec["lat"] == EX_LAT_A and rec["lon"] == EX_LON_A
 
     def test_non_detection_returns_none(self) -> None:
         assert si.line_to_record({"type": "info"}, {}) is None
@@ -88,13 +89,13 @@ class TestLineToRecord:
 class TestIterStream:
     def test_gps_updates_position(self) -> None:
         lines = [
-            '{"v":1,"type":"gps","lat":40.0,"lon":-74.0,"alt":1,"accuracy":3,"ts_ms":1}',
+            f'{{"v":1,"type":"gps","lat":{EX_LAT},"lon":{EX_LON},"alt":1,"accuracy":3,"ts_ms":1}}',
             sign(WIFI_PAYLOAD),
         ]
         recs = list(si.iter_records(lines, KEY))
         assert len(recs) == 1
         rec, _ = recs[0]
-        assert rec["lat"] == 40.0 and rec["lon"] == -74.0
+        assert rec["lat"] == EX_LAT and rec["lon"] == EX_LON
 
     def test_forged_line_skipped(self) -> None:
         good = sign(WIFI_PAYLOAD)
@@ -146,7 +147,7 @@ class TestLogAndSqlite:
         reread, scanned = detect.run_detection(out)
         assert scanned == 2
         macs = {h.mac.lower() for h in reread}
-        assert "70:c9:4e:79:e7:66" in macs
+        assert MAC_FLOCK_CAM in macs
 
 
 class TestSourceDetection:

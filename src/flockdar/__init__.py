@@ -8,6 +8,6 @@ from __future__ import annotations
 
 from .detect import Cluster, Hit, analyze, run_detection
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = ["Cluster", "Hit", "analyze", "run_detection", "__version__"]
