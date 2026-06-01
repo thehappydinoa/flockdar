@@ -16,7 +16,7 @@
 #define FD_SERIAL_BAUD 115200
 // Bump when flashing to confirm the new build is running (shown on boot + status).
 #ifndef FD_FW_VERSION
-#define FD_FW_VERSION "0.2.1"
+#define FD_FW_VERSION "0.2.2"
 #endif
 
 // HMAC-SHA256 key shared with the Python receiver so it can reject forged or

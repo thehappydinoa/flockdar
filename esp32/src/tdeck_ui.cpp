@@ -155,7 +155,7 @@ uint8_t s_paint_ch = 255;
 uint32_t s_paint_wifi_rf = 0;
 uint32_t s_paint_ble_rf = 0;
 bool s_paint_gps_fix = false;
-uint32_t s_paint_nmea = 0;
+bool s_paint_gps_nmea = false;  // nmea_chars >= 10 (not raw count — avoids constant redraw)
 uint8_t s_paint_sats = 255;
 bool s_paint_sd = false;
 char s_paint_sd_path[24] = "";
@@ -189,7 +189,7 @@ void invalidate_status_paint_cache() {
   s_paint_wifi_rf = UINT32_MAX;
   s_paint_ble_rf = UINT32_MAX;
   s_paint_gps_fix = !s_paint_gps_fix;
-  s_paint_nmea = UINT32_MAX;
+  s_paint_gps_nmea = !s_paint_gps_nmea;
   s_paint_sats = 255;
   s_paint_sd = !s_paint_sd;
   s_paint_sd_path[0] = '\0';
@@ -333,6 +333,13 @@ void poll_battery() {
 }
 
 void paint_status_static_labels(const StatusLayout &L) {
+  char ver[16];
+  snprintf(ver, sizeof(ver), "v%s", FD_FW_VERSION);
+  tft.setTextDatum(TR_DATUM);
+  chrome.paint_text(tft.width() - 4, kBodyTop + 2, ver, kFontLabel, kTextMuted,
+                    kBg);
+  tft.setTextDatum(TL_DATUM);
+
   int y = kStatContentY - s_status_scroll;
   chrome.paint_section_label(y, "DETECTION");
   y = kStatContentY + L.y_ch + kFieldH + kStatBlockGap - s_status_scroll;
@@ -393,13 +400,14 @@ void paint_status_dynamic(bool force) {
   uint32_t nmea_chars = 0;
   uint8_t gps_sats = 0;
   gps_status(&gps_fix, &gps_lat, &gps_lon, &nmea_chars, &gps_sats);
-  if (force || gps_fix != s_paint_gps_fix || nmea_chars != s_paint_nmea ||
+  const bool nmea_ok = nmea_chars >= 10;
+  if (force || gps_fix != s_paint_gps_fix || nmea_ok != s_paint_gps_nmea ||
       gps_sats != s_paint_sats) {
     if (gps_fix) {
       snprintf(val, sizeof(val), "%.5f,%.5f", gps_lat, gps_lon);
       chrome.paint_field_icon(status_paint_y(L.y_gps), StatusIcon::kGps,
                               "Position", val);
-    } else if (nmea_chars < 10) {
+    } else if (!nmea_ok) {
       chrome.paint_field_icon(status_paint_y(L.y_gps), StatusIcon::kGps, "Fix",
                               "no module");
     } else {
@@ -408,7 +416,7 @@ void paint_status_dynamic(bool force) {
                               val);
     }
     s_paint_gps_fix = gps_fix;
-    s_paint_nmea = nmea_chars;
+    s_paint_gps_nmea = nmea_ok;
     s_paint_sats = gps_sats;
   }
 #endif
@@ -1376,6 +1384,10 @@ void tdeck_ui_begin() {
   tft.setTextDatum(MC_DATUM);
   tft.setTextColor(kTextMuted, kBg);
   tft.drawString("WARDRIVE STARTING", tft.width() / 2, 100, kFontLabel);
+  char ver[16];
+  snprintf(ver, sizeof(ver), "v%s", FD_FW_VERSION);
+  tft.setTextColor(kAccentDim, kBg);
+  tft.drawString(ver, tft.width() / 2, 114, kFontLabel);
   tft.setTextDatum(TL_DATUM);
 
   pinMode(TDECK_BL_PIN, OUTPUT);
@@ -1431,7 +1443,9 @@ void tdeck_ui_loop() {
     uint32_t nc = 0;
     uint8_t gs = 0;
     gps_status(&gf, nullptr, nullptr, &nc, &gs);
-    if (gf != s_paint_gps_fix || nc != s_paint_nmea || gs != s_paint_sats) {
+    const bool nmea_ok = nc >= 10;
+    if (gf != s_paint_gps_fix || nmea_ok != s_paint_gps_nmea ||
+        gs != s_paint_sats) {
       s_dirty = true;
     }
   }

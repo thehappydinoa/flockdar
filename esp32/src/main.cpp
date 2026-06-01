@@ -46,7 +46,11 @@ void setup() {
   wifi_scanner_begin();
   ble_scanner_begin();
 
-  serial_out_info("online");
+  {
+    char msg[32];
+    snprintf(msg, sizeof(msg), "online %s", FD_FW_VERSION);
+    serial_out_info(msg);
+  }
 #ifdef FD_ENABLE_SD
   serial_out_info(sdlog_ok() ? "sd log open" : "sd card not found");
 #endif

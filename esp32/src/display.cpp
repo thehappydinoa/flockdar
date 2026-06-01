@@ -14,6 +14,7 @@ void display_loop() { tdeck_ui_loop(); }
 #include <Arduino.h>
 #include <Wire.h>
 
+#include "config.h"
 #include "wifi_scanner.h"
 
 static Adafruit_SSD1306 s_oled(FD_OLED_WIDTH, FD_OLED_HEIGHT, &Wire, -1);
@@ -33,6 +34,7 @@ void display_begin() {
   s_oled.setTextColor(SSD1306_WHITE);
   s_oled.setCursor(0, 0);
   s_oled.println("flockdar-esp32");
+  s_oled.printf("v%s\n", FD_FW_VERSION);
   s_oled.println("scanning...");
   s_oled.display();
 }
