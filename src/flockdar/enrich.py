@@ -480,7 +480,7 @@ class WiGLEEnricher(Enricher):
                     headers={"Authorization": self.__auth_header, "Accept": "application/json"},
                 )
             if resp.status_code == 404:
-                return []
+                return [("WIGLE_NOT_FOUND", "not in WiGLE DB")]
             resp.raise_for_status()
             data: dict[str, Any] = resp.json()
         except httpx.HTTPStatusError:
@@ -490,7 +490,7 @@ class WiGLEEnricher(Enricher):
 
         results: list[dict[str, Any]] = data.get("results", [])
         if not results:
-            return []
+            return [("WIGLE_NOT_FOUND", "no results")]
         net = results[0]
         loc: list[dict[str, Any]] = net.get("locationData") or []
         count: Any = loc[0].get("total", "?") if loc else "?"

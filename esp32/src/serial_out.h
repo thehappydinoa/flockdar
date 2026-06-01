@@ -16,7 +16,7 @@ void serial_out_info(const char *msg);
 void serial_out_raw(const char *line);
 
 #ifdef FD_ENABLE_GPS
-// Periodic GPS debug snapshot (unsigned). See README "gps_status" line type.
+// Periodic GPS snapshot for host tools (flockdar-ingest --monitor).
 void serial_out_gps_status(uint32_t nmea_chars, uint8_t sats, bool fix,
-                           bool module);
+                           bool module, const char *chip);
 #endif

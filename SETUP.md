@@ -165,3 +165,7 @@ mismatched-key streams during debugging.
 
 If `--serial` reports a permission error on Linux, you are not in the
 `dialout` group yet (see [section 2](#2-esp32-firmware-toolchain)).
+
+`flockdar-ingest` and `flockdar --serial` open the port with DTR/RTS held low so
+**Ctrl-C does not reboot the ESP32** (closing the port otherwise toggles those
+lines on USB-CDC, same as an upload reset).

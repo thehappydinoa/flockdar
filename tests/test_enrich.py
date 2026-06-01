@@ -24,7 +24,7 @@ from flockdar.enrich import (
     load_config,
     save_config,
 )
-from tests.conftest import make_hit, make_kmz
+from tests.conftest import MAC_EX, MAC_FLOCK_CAM, make_hit, make_kmz
 
 
 # ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@ class TestDistM:
 
     def test_known_distance(self) -> None:
         # ~111 m per 0.001 degree lat at this latitude
-        d = _dist_m(40.0, -74.0, 40.001, -74.0)
+        d = _dist_m(40.00000, -74.0, 40.00100, -74.0)
         assert 100 < d < 120
 
     def test_symmetry(self) -> None:
@@ -190,7 +190,7 @@ class TestOverpassEnricher:
     async def test_closest_node_is_returned(self) -> None:
         nodes = [
             {"id": 1, "lat": 40.0002, "lon": -74.0002, "tags": {"name": "Near"}},
-            {"id": 2, "lat": 40.01, "lon": -74.01, "tags": {"name": "Far"}},
+            {"id": 2, "lat": 40.0100, "lon": -74.0100, "tags": {"name": "Far"}},
         ]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
         result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
@@ -266,7 +266,7 @@ class TestALPRWatchEnricher:
         e = ALPRWatchEnricher()
         # Simulate two concurrent enrichment calls
         hit = make_hit(lat=40.0017, lon=-74.0009)
-        await enrich_hits_async([hit, make_hit(lat=40.0018, lon=-74.001)], [e])
+        await enrich_hits_async([hit, make_hit(lat=40.0018, lon=-74.0010)], [e])
         assert call_count == 1  # downloaded only once despite concurrent calls
 
 
@@ -292,7 +292,7 @@ class TestWiGLEEnricher:
             }]
         }
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(200, body))
-        result = await e.enrich(make_hit(mac="70:c9:4e:00:00:01"))
+        result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
         assert len(result) == 1
         label, detail = result[0]
         assert label == "WIGLE_SEEN"
@@ -301,12 +301,12 @@ class TestWiGLEEnricher:
 
     async def test_not_found_404(self) -> None:
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(404, {}))
-        result = await e.enrich(make_hit(mac="70:c9:4e:00:00:01"))
+        result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
         assert result == [("WIGLE_NOT_FOUND", "not in WiGLE DB")]
 
     async def test_empty_results(self) -> None:
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(200, {"results": []}))
-        result = await e.enrich(make_hit(mac="70:c9:4e:00:00:01"))
+        result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
         assert result == [("WIGLE_NOT_FOUND", "no results")]
 
     async def test_no_mac_returns_empty(self) -> None:

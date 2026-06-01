@@ -54,20 +54,21 @@ coordinates.
 
 ## Output format
 
-Newline-delimited JSON at 115200 baud. Each line is one event.
+Newline-delimited JSON at 115200 baud. Each line is one event. Example
+`lat`/`lon` values below are fictional (40°N, 74°W), not real wardrive data.
 
 ```json
-{"v":1,"type":"wifi","method":"probe_request","mac":"70:c9:4e:00:00:01","rssi":-72,"channel":6,"oui":"70:c9:4e","lat":40.0,"lon":-74.0008,"accuracy":3.1,"ts_ms":1234567890,"sig":"a3f2..."}
-{"v":1,"type":"wifi","method":"addr1","mac":"d8:f3:bc:00:00:01","rssi":-68,"channel":11,"ts_ms":1234567891,"sig":"b81c..."}
-{"v":1,"type":"ble","method":"name_match","mac":"04:0d:84:00:00:01","name":"FS Ext Battery","rssi":-85,"lat":40.0,"lon":-74.0008,"accuracy":3.1,"ts_ms":1234567892,"sig":"c940..."}
+{"v":1,"type":"wifi","method":"probe_request","mac":"70:c9:4e:00:00:01","rssi":-72,"channel":6,"oui":"70:c9:4e","lat":40.0,"lon":-74.0,"accuracy":3.1,"ts_ms":1234567890,"sig":"a3f2..."}
+{"v":1,"type":"wifi","method":"addr1","mac":"02:00:00:00:00:01","rssi":-68,"channel":11,"ts_ms":1234567891,"sig":"b81c..."}
+{"v":1,"type":"ble","method":"name_match","mac":"04:0d:84:00:00:01","name":"FS Ext Battery","rssi":-85,"lat":40.0,"lon":-74.0,"accuracy":3.1,"ts_ms":1234567892,"sig":"c940..."}
 {"v":1,"type":"ble","method":"mfgrid","mac":"d4:b2:73:00:00:01","name":"1069698414","mfgrid":2504,"rssi":-90,"ts_ms":1234567893,"sig":"d12e..."}
-{"v":1,"type":"gps","lat":40.0016,"lon":-74.0008,"alt":12.3,"accuracy":3.1,"ts_ms":1234567894}
-{"v":1,"type":"info","fw":"0.2.1","msg":"online","ts_ms":100}
-{"v":1,"type":"gps_status","fw":"0.2.1","nmea":842,"sats":4,"fix":false,"module":true,"ts_ms":5000}
+{"v":1,"type":"gps","fw":"0.3.0","lat":40.0,"lon":-74.0,"alt":12.3,"accuracy":3.1,"ts_ms":1234567894}
+{"v":1,"type":"info","fw":"0.3.0","msg":"online","ts_ms":100}
+{"v":1,"type":"gps_status","fw":"0.3.0","chip":"ublox","nmea":842,"sats":4,"fix":false,"module":true,"ts_ms":5000}
 ```
 
 Boot emits an `info` line (with `fw`) and an immediate `gps_status` snapshot.
-While acquiring a fix, `gps_status` repeats every 10 s on serial for debugging
+While acquiring a fix, `gps_status` repeats every 30 s on serial
 (`uv run flockdar-ingest COM3 --monitor` on Windows).
 
 ### SD card over serial
@@ -88,14 +89,14 @@ From the host:
 
 ```bash
 uv run flockdar-ingest COM3 --sd-list
-uv run flockdar-ingest COM3 --sd-dump flock-46 flock-0046.ndjson --gps-summary
-uv run flockdar flock-0046.ndjson   # open in TUI
+uv run flockdar-ingest COM3 --sd-dump last capture.ndjson --gps-summary
+uv run flockdar capture.ndjson   # open in TUI
 ```
 
 **Faster for large logs:** power off, remove the microSD, and copy `/flock-NNNN.ndjson`
 from the card on your PC (FAT32). Serial dump replays NDJSON line-by-line and suits
 quick checks without removing the card; a 4 KB file should finish in a few seconds
-on fw 0.2.5+.
+on fw 0.3.0+.
 
 When GPS has a fix, `wifi` and `ble` lines include `lat`, `lon`, and (when
 available) `accuracy` stamped at emit time. Lines emitted before the first fix

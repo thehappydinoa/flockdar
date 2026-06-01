@@ -179,19 +179,24 @@ def _format_monitor_line(obj: dict[str, Any]) -> str | None:
         return f"[{ts}ms] fw={fw}  {obj.get('msg', '')}"
     if etype == "gps_status":
         fix = obj.get("fix")
-        state = "FIX" if fix is True or fix == "true" else "acquiring"
-        if not (obj.get("module") is True or obj.get("module") == "true"):
+        nmea = int(obj.get("nmea", 0) or 0)
+        if fix is True or fix == "true":
+            state = "FIX"
+        elif nmea >= 10:
+            state = "acquiring"
+        elif not (obj.get("module") is True or obj.get("module") == "true"):
             state = "no module"
-        elif int(obj.get("nmea", 0) or 0) < 10:
+        else:
             state = "no NMEA"
+        chip = obj.get("chip", "")
+        chip_s = f" chip={chip}" if chip else ""
         return (
-            f"[{ts}ms] fw={fw}  gps {state}  "
+            f"[{ts}ms] fw={fw}  gps {state}{chip_s}  "
             f"nmea={obj.get('nmea', 0)} sats={obj.get('sats', 0)}"
         )
     if etype == "gps":
         return (
             f"[{ts}ms] fw={fw}  gps FIX  "
-            f"{obj.get('lat')},{obj.get('lon')} "
             f"acc={obj.get('accuracy', '?')}m"
         )
     return None
@@ -304,6 +309,43 @@ def log_lines(path: Path | str) -> Iterator[str]:
         yield from f
 
 
+def _serial_open(port: str, baud: int):
+    """Open a serial port without toggling DTR/RTS (avoids ESP32 USB-CDC reset)."""
+    try:
+        import serial  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "pyserial is required for serial access; install with `uv sync`"
+        ) from exc
+    ser = serial.Serial()
+    ser.port = port
+    ser.baudrate = baud
+    ser.timeout = 1
+    # ESP32-S3 native USB resets on DTR/RTS edges (same mechanism as `pio upload`).
+    ser.dtr = False
+    ser.rts = False
+    try:
+        ser.open()
+    except serial.SerialException as exc:
+        raise RuntimeError(f"cannot open serial port {port}: {exc}") from exc
+    ser.dtr = False
+    ser.rts = False
+    return ser
+
+
+def _serial_close(ser: Any) -> None:
+    """Close without pulsing DTR/RTS (Ctrl-C otherwise reboots the device)."""
+    if ser is None:
+        return
+    try:
+        if getattr(ser, "is_open", False):
+            ser.dtr = False
+            ser.rts = False
+            ser.close()
+    except Exception:
+        pass
+
+
 def serial_lines(
     port: str, baud: int = DEFAULT_BAUD, should_stop: Callable[[], bool] | None = None
 ) -> Iterator[str]:
@@ -311,17 +353,7 @@ def serial_lines(
 
     pyserial is imported lazily so file/log ingestion works without it.
     """
-    try:
-        import serial  # type: ignore
-    except ImportError as exc:  # pragma: no cover - depends on install
-        raise RuntimeError(
-            "pyserial is required for --serial; install with `uv sync`"
-        ) from exc
-
-    try:
-        ser = serial.Serial(port, baud, timeout=1)
-    except serial.SerialException as exc:  # bad port, permission denied, busy
-        raise RuntimeError(f"cannot open serial port {port}: {exc}") from exc
+    ser = _serial_open(port, baud)
     try:
         while True:
             if should_stop and should_stop():
@@ -331,20 +363,7 @@ def serial_lines(
                 continue  # timeout — loop back to re-check should_stop
             yield raw.decode("utf-8", "replace")
     finally:
-        ser.close()
-
-
-def _serial_open(port: str, baud: int):
-    try:
-        import serial  # type: ignore
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError(
-            "pyserial is required for serial SD access; install with `uv sync`"
-        ) from exc
-    try:
-        return serial.Serial(port, baud, timeout=1)
-    except serial.SerialException as exc:
-        raise RuntimeError(f"cannot open serial port {port}: {exc}") from exc
+        _serial_close(ser)
 
 
 def _info_msg(obj: dict[str, Any]) -> str:
@@ -426,7 +445,7 @@ def serial_sd_list(port: str, baud: int = DEFAULT_BAUD) -> list[tuple[str, int]]
                 if len(parts) >= 4:
                     files.append((parts[2], int(parts[3])))
     finally:
-        ser.close()
+        _serial_close(ser)
     if interrupted:
         print("\nList interrupted.", file=sys.stderr)
     return files
@@ -499,7 +518,7 @@ def serial_sd_dump(
                         print("  transfer started", file=sys.stderr, flush=True)
                 elif not saw_ack and time.time() >= nudge_at:
                     print(
-                        "  still waiting (need fw 0.2.4+; close other COM4 users)",
+                        "  still waiting (close other serial port users)",
                         file=sys.stderr,
                         flush=True,
                     )
@@ -530,7 +549,7 @@ def serial_sd_dump(
             return SdDumpResult(rows, interrupted=True)
         return SdDumpResult(rows, timed_out=True)
     finally:
-        ser.close()
+        _serial_close(ser)
 
 
 def gps_log_summary(lines: Iterable[str]) -> str:
@@ -560,17 +579,18 @@ def gps_log_summary(lines: Iterable[str]) -> str:
     out: list[str] = [f"Firmware: {fw}", f"gps_status samples: {len(statuses)}"]
     if statuses:
         last = statuses[-1]
+        chip = last.get("chip", "?")
         out.append(
             "Last gps_status: "
-            f"fix={last.get('fix')} sats={last.get('sats')} "
+            f"chip={chip} fix={last.get('fix')} sats={last.get('sats')} "
             f"nmea={last.get('nmea')} module={last.get('module')}"
         )
         max_sats = max(int(s.get("sats", 0) or 0) for s in statuses)
         out.append(f"Peak satellites seen: {max_sats}")
         if max_sats == 0 and int(last.get("nmea", 0) or 0) > 100:
             out.append(
-                "NMEA flowed but sats stayed 0 — antenna/sky view or no GGA fix "
-                "(try longer outdoors, GPS side up)."
+                "NMEA flowing but no fix yet — check antenna/sky view, or wrong "
+                "GPS chip init (see esp32/BOARDS.md)."
             )
     out.append(f"gps fix lines: {len(fixes)}")
     if fixes:
@@ -657,7 +677,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument(
         "--monitor",
         action="store_true",
-        help="print firmware info/gps status only (debug GPS or verify fw version)",
+        help="print firmware info/gps status only (verify fw version / GPS)",
     )
     ap.add_argument(
         "--sd-list",
