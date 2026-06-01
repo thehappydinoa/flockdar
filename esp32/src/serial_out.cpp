@@ -66,12 +66,27 @@ static void output_line(const char *line) {
 void serial_out_begin() { Serial.begin(FD_SERIAL_BAUD); }
 
 void serial_out_info(const char *msg) {
-  char line[160];
+  char line[192];
   snprintf(line, sizeof(line),
-           "{\"v\":%d,\"type\":\"info\",\"msg\":\"%s\",\"ts_ms\":%lu}",
-           FD_PROTO_VERSION, msg, (unsigned long)millis());
+           "{\"v\":%d,\"type\":\"info\",\"fw\":\"%s\",\"msg\":\"%s\","
+           "\"ts_ms\":%lu}",
+           FD_PROTO_VERSION, FD_FW_VERSION, msg, (unsigned long)millis());
   output_line(line);
 }
+
+#ifdef FD_ENABLE_GPS
+void serial_out_gps_status(uint32_t nmea_chars, uint8_t sats, bool fix,
+                           bool module) {
+  char line[192];
+  snprintf(line, sizeof(line),
+           "{\"v\":%d,\"type\":\"gps_status\",\"fw\":\"%s\",\"nmea\":%lu,"
+           "\"sats\":%u,\"fix\":%s,\"module\":%s,\"ts_ms\":%lu}",
+           FD_PROTO_VERSION, FD_FW_VERSION, (unsigned long)nmea_chars,
+           (unsigned)sats, fix ? "true" : "false", module ? "true" : "false",
+           (unsigned long)millis());
+  output_line(line);
+}
+#endif
 
 void serial_out_emit(const Detection &d) {
   char body[448];  // headroom for escaped name + GPS fields

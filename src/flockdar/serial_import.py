@@ -15,6 +15,9 @@ No UI dependencies; importable from the TUI or run standalone:
     # replay an SD-card log
     uv run flockdar-ingest flock-0001.ndjson out.sqlite
 
+    # debug GPS / firmware version over serial (no detections)
+    uv run flockdar-ingest COM3 --monitor
+
 (`flockdar-ingest` is the console script; `python -m flockdar.serial_import`
 works too.)
 
@@ -144,6 +147,49 @@ def line_to_record(obj: dict[str, Any], pos: dict[str, float]) -> tuple[Record, 
         )
 
     return None
+
+
+def _format_monitor_line(obj: dict[str, Any]) -> str | None:
+    """Human-readable line for firmware status events (info/gps/gps_status)."""
+    etype = obj.get("type")
+    fw = obj.get("fw", "?")
+    ts = obj.get("ts_ms", "?")
+    if etype == "info":
+        return f"[{ts}ms] fw={fw}  {obj.get('msg', '')}"
+    if etype == "gps_status":
+        fix = obj.get("fix")
+        state = "FIX" if fix is True or fix == "true" else "acquiring"
+        if not (obj.get("module") is True or obj.get("module") == "true"):
+            state = "no module"
+        elif int(obj.get("nmea", 0) or 0) < 10:
+            state = "no NMEA"
+        return (
+            f"[{ts}ms] fw={fw}  gps {state}  "
+            f"nmea={obj.get('nmea', 0)} sats={obj.get('sats', 0)}"
+        )
+    if etype == "gps":
+        return (
+            f"[{ts}ms] fw={fw}  gps FIX  "
+            f"{obj.get('lat')},{obj.get('lon')} "
+            f"acc={obj.get('accuracy', '?')}m"
+        )
+    return None
+
+
+def monitor_stream(lines: Iterable[str]) -> None:
+    """Print firmware info/gps status lines; ignore wifi/ble detections."""
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            print(f"?? {line}", file=sys.stderr)
+            continue
+        formatted = _format_monitor_line(obj)
+        if formatted:
+            print(formatted)
 
 
 # ---------------------------------------------------------------------------
@@ -340,6 +386,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--baud", type=int, default=DEFAULT_BAUD)
     ap.add_argument("--key", help=f"HMAC key (or ${ENV_HMAC_KEY}; default firmware key)")
     ap.add_argument("--no-verify", action="store_true", help="skip HMAC verification")
+    ap.add_argument(
+        "--monitor",
+        action="store_true",
+        help="print firmware info/gps status only (debug GPS or verify fw version)",
+    )
     args = ap.parse_args(argv)
 
     key = resolve_key(args.key)
@@ -347,9 +398,21 @@ def main(argv: list[str] | None = None) -> int:
 
     if is_serial_source(args.source):
         lines: Iterable[str] = serial_lines(args.source, args.baud)
-        print(f"Reading {args.source} @ {args.baud} baud — Ctrl-C to stop.", file=sys.stderr)
+        label = f"Reading {args.source} @ {args.baud} baud"
     else:
         lines = log_lines(args.source)
+        label = f"Reading {args.source}"
+
+    if args.monitor:
+        print(f"{label} — Ctrl-C to stop.", file=sys.stderr)
+        try:
+            monitor_stream(lines)
+        except KeyboardInterrupt:
+            print("\nStopped.", file=sys.stderr)
+        return 0
+
+    if is_serial_source(args.source):
+        print(f"{label} — Ctrl-C to stop.", file=sys.stderr)
 
     records: list[Record] = []
     try:
