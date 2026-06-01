@@ -30,5 +30,14 @@ void sdlog_loop();
 void sdlog_get_status(SdlogStatus *out);
 // Force an immediate remount attempt (UI / debug).
 bool sdlog_retry_mount();
+// List /flock-*.ndjson on the card (unsigned info lines over serial).
+void sdlog_list();
+// Stream a log file over USB serial (raw NDJSON lines; not mirrored to SD).
+// path: "/flock-0001.ndjson", "last" (previous run), or nullptr (current log).
+bool sdlog_dump(const char *path);
+// Drive an in-progress dump (call from main loop); returns true while active.
+bool sdlog_dump_poll();
+void sdlog_dump_abort();
+bool sdlog_host_busy();
 
 #endif

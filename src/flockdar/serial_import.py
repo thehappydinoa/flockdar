@@ -18,6 +18,11 @@ No UI dependencies; importable from the TUI or run standalone:
     # debug GPS / firmware version over serial (no detections)
     uv run flockdar-ingest COM3 --monitor
 
+    # list / dump microSD wardrive logs over serial (T-Deck, FD_ENABLE_SD)
+    uv run flockdar-ingest COM3 --sd-list
+    uv run flockdar-ingest COM3 --sd-dump last -o last-run.ndjson
+    uv run flockdar-ingest COM3 --sd-dump last --gps-summary
+
 (`flockdar-ingest` is the console script; `python -m flockdar.serial_import`
 works too.)
 
@@ -38,6 +43,8 @@ import os
 import re
 import sqlite3
 import sys
+import time
+from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
@@ -327,6 +334,254 @@ def serial_lines(
         ser.close()
 
 
+def _serial_open(port: str, baud: int):
+    try:
+        import serial  # type: ignore
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError(
+            "pyserial is required for serial SD access; install with `uv sync`"
+        ) from exc
+    try:
+        return serial.Serial(port, baud, timeout=1)
+    except serial.SerialException as exc:
+        raise RuntimeError(f"cannot open serial port {port}: {exc}") from exc
+
+
+def _info_msg(obj: dict[str, Any]) -> str:
+    return str(obj.get("msg", "") or "")
+
+
+def _line_info_msg(line: str) -> str | None:
+    """Extract firmware info msg from a serial line (JSON or substring fallback)."""
+    obj = _parse_json_line(line)
+    if obj is not None and obj.get("type") == "info":
+        return _info_msg(obj)
+    if '"type":"info"' in line or '"type": "info"' in line:
+        m = re.search(r'"msg"\s*:\s*"([^"\\]*(?:\\.[^"\\]*)*)"', line)
+        if m:
+            return m.group(1).encode().decode("unicode_escape")
+    return None
+
+
+def _send_sd_abort(ser: Any) -> None:
+    try:
+        ser.write(b"sd abort\n")
+        ser.flush()
+        time.sleep(0.15)
+    except Exception:
+        pass
+
+
+@dataclass
+class SdDumpResult:
+    lines: list[str]
+    complete: bool = False
+    interrupted: bool = False
+    timed_out: bool = False
+
+
+def normalize_sd_dump_target(target: str | None) -> str | None:
+    """Accept ``46``, ``flock-46``, or ``/flock-0046.ndjson`` for the firmware."""
+    if target is None or target == "":
+        return None
+    if target == "last":
+        return "last"
+    m = re.match(r"^(?:/)?flock-(\d+)(?:\.ndjson)?$", target, re.IGNORECASE)
+    if m:
+        return f"/flock-{int(m.group(1)):04d}.ndjson"
+    if re.fullmatch(r"\d+", target):
+        return f"/flock-{int(target):04d}.ndjson"
+    if target.startswith("/"):
+        return target
+    return f"/{target}"
+
+
+def serial_sd_list(port: str, baud: int = DEFAULT_BAUD) -> list[tuple[str, int]]:
+    """Send ``sd list``; return [(path, bytes), ...] from the card."""
+    ser = _serial_open(port, baud)
+    files: list[tuple[str, int]] = []
+    interrupted = False
+    try:
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+        ser.write(b"sd list\n")
+        ser.flush()
+        deadline = time.time() + 30.0
+        while time.time() < deadline:
+            try:
+                raw = ser.readline()
+            except KeyboardInterrupt:
+                interrupted = True
+                break
+            if not raw:
+                continue
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            msg = _line_info_msg(line)
+            if msg and msg.startswith("sd list end"):
+                break
+            if msg and msg.startswith("sd file "):
+                parts = msg.split()
+                if len(parts) >= 4:
+                    files.append((parts[2], int(parts[3])))
+    finally:
+        ser.close()
+    if interrupted:
+        print("\nList interrupted.", file=sys.stderr)
+    return files
+
+
+def _parse_sd_dump_ack(msg: str) -> int | None:
+    """Return expected byte size from ``sd dump ack /path N``."""
+    parts = msg.split()
+    if len(parts) >= 4 and parts[-1].isdigit():
+        return int(parts[-1])
+    return None
+
+
+def serial_sd_dump(
+    port: str,
+    target: str | None = None,
+    baud: int = DEFAULT_BAUD,
+    timeout: float = 600.0,
+) -> SdDumpResult:
+    """Send ``sd dump`` and collect raw NDJSON lines from the card."""
+    ser = _serial_open(port, baud)
+    rows: list[str] = []
+    capturing = False
+    saw_ack = False
+    interrupted = False
+    expected_bytes: int | None = None
+    received_bytes = 0
+    last_progress = time.time()
+    last_pct = -1
+    try:
+        time.sleep(0.3)
+        ser.reset_input_buffer()
+        cmd = "sd dump" if not target else f"sd dump {target}"
+        ser.write((cmd + "\n").encode("utf-8"))
+        ser.flush()
+        print("  waiting for device...", file=sys.stderr, flush=True)
+        start = time.time()
+        deadline = start + timeout
+        nudge_at = start + 20.0
+        while time.time() < deadline:
+            try:
+                raw = ser.readline()
+            except KeyboardInterrupt:
+                interrupted = True
+                _send_sd_abort(ser)
+                break
+            if not raw:
+                if capturing and time.time() - last_progress > 30.0:
+                    print("  (still receiving...)", file=sys.stderr, flush=True)
+                    last_progress = time.time()
+                continue
+            line = raw.decode("utf-8", errors="replace").strip()
+            if not line:
+                continue
+            msg = _line_info_msg(line)
+            if not capturing:
+                if msg and msg.startswith("sd dump ack"):
+                    saw_ack = True
+                    expected_bytes = _parse_sd_dump_ack(msg)
+                    print(f"  {msg}", file=sys.stderr, flush=True)
+                elif msg and msg.startswith("sd dump fail"):
+                    raise RuntimeError(msg)
+                elif (msg and msg.startswith("sd dump begin")) or (
+                    "sd dump begin" in line
+                ):
+                    capturing = True
+                    if msg:
+                        print(f"  {msg}", file=sys.stderr, flush=True)
+                    else:
+                        print("  transfer started", file=sys.stderr, flush=True)
+                elif not saw_ack and time.time() >= nudge_at:
+                    print(
+                        "  still waiting (need fw 0.2.4+; close other COM4 users)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    nudge_at = time.time() + 20.0
+                continue
+            if (msg and msg.startswith("sd dump end")) or "sd dump end" in line:
+                if msg:
+                    print(f"  {msg}", file=sys.stderr, flush=True)
+                return SdDumpResult(rows, complete=True)
+            if (msg and msg.startswith("sd dump aborted")) or "sd dump aborted" in line:
+                return SdDumpResult(rows, interrupted=True)
+            rows.append(line)
+            received_bytes += len(line) + 1
+            now = time.time()
+            if expected_bytes and expected_bytes > 0:
+                pct = min(100, received_bytes * 100 // expected_bytes)
+                if pct >= last_pct + 10 or pct == 100:
+                    print(
+                        f"  {pct}% ({received_bytes}/{expected_bytes} bytes)",
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    last_pct = pct
+            elif len(rows) % 500 == 0 or now - last_progress >= 5.0:
+                print(f"  {len(rows)} lines...", file=sys.stderr, flush=True)
+                last_progress = now
+        if interrupted:
+            return SdDumpResult(rows, interrupted=True)
+        return SdDumpResult(rows, timed_out=True)
+    finally:
+        ser.close()
+
+
+def gps_log_summary(lines: Iterable[str]) -> str:
+    """Summarise gps_status / gps lines from an NDJSON log."""
+    statuses: list[dict[str, Any]] = []
+    fixes: list[dict[str, Any]] = []
+    fw = "?"
+    for line in lines:
+        line = line.strip()
+        if not line:
+            continue
+        try:
+            obj = json.loads(line)
+        except (json.JSONDecodeError, ValueError):
+            continue
+        if obj.get("type") == "gps_status":
+            statuses.append(obj)
+            fw = str(obj.get("fw", fw))
+        elif obj.get("type") == "gps":
+            fixes.append(obj)
+            fw = str(obj.get("fw", fw))
+    if not statuses and not fixes:
+        return (
+            "No GPS lines in this log. If the run predates gps_status logging, "
+            "check wifi/ble lines for inline lat/lon."
+        )
+    out: list[str] = [f"Firmware: {fw}", f"gps_status samples: {len(statuses)}"]
+    if statuses:
+        last = statuses[-1]
+        out.append(
+            "Last gps_status: "
+            f"fix={last.get('fix')} sats={last.get('sats')} "
+            f"nmea={last.get('nmea')} module={last.get('module')}"
+        )
+        max_sats = max(int(s.get("sats", 0) or 0) for s in statuses)
+        out.append(f"Peak satellites seen: {max_sats}")
+        if max_sats == 0 and int(last.get("nmea", 0) or 0) > 100:
+            out.append(
+                "NMEA flowed but sats stayed 0 — antenna/sky view or no GGA fix "
+                "(try longer outdoors, GPS side up)."
+            )
+    out.append(f"gps fix lines: {len(fixes)}")
+    if fixes:
+        f0 = fixes[0]
+        out.append(
+            f"First fix: {f0.get('lat')},{f0.get('lon')} "
+            f"acc={f0.get('accuracy')}m @ {f0.get('ts_ms')}ms"
+        )
+    return "\n".join(out)
+
+
 # ---------------------------------------------------------------------------
 # SQLite writer (WiGLE-compatible, so the TUI can open the result)
 # ---------------------------------------------------------------------------
@@ -404,10 +659,73 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="print firmware info/gps status only (debug GPS or verify fw version)",
     )
+    ap.add_argument(
+        "--sd-list",
+        action="store_true",
+        help="list flock-*.ndjson files on the device SD card (serial only)",
+    )
+    ap.add_argument(
+        "--sd-dump",
+        nargs="?",
+        const="",
+        metavar="PATH",
+        help="dump SD log: 46, flock-46, /flock-0046.ndjson, last, or omit for current",
+    )
+    ap.add_argument(
+        "--gps-summary",
+        action="store_true",
+        help="with --sd-dump, print GPS stats from the log",
+    )
     args = ap.parse_args(argv)
 
     key = resolve_key(args.key)
     verify = not args.no_verify
+
+    if args.sd_list or args.sd_dump is not None:
+        if not is_serial_source(args.source):
+            print("--sd-list / --sd-dump require a serial port", file=sys.stderr)
+            return 2
+        if args.sd_list:
+            for path, size in serial_sd_list(args.source, args.baud):
+                print(f"{path}  {size} bytes")
+            return 0
+        target = normalize_sd_dump_target(args.sd_dump or None)
+        print(f"Dumping SD log from {args.source}...", file=sys.stderr)
+        if target:
+            print(f"  file: {target}", file=sys.stderr)
+        try:
+            result = serial_sd_dump(args.source, target=target, baud=args.baud)
+        except RuntimeError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            print("\nInterrupted.", file=sys.stderr)
+            return 130
+        if result.interrupted:
+            print(
+                f"Dump interrupted — kept {len(result.lines)} line(s).",
+                file=sys.stderr,
+            )
+        elif result.timed_out:
+            print(
+                f"Dump timed out — got {len(result.lines)} line(s) so far.",
+                file=sys.stderr,
+            )
+        elif result.complete:
+            print(f"Done — {len(result.lines)} line(s).", file=sys.stderr)
+        rows = result.lines
+        if args.output:
+            Path(args.output).write_text(
+                "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8"
+            )
+            print(f"Wrote {len(rows)} line(s) -> {args.output}", file=sys.stderr)
+        else:
+            for row in rows:
+                print(row)
+        if args.gps_summary and rows:
+            print("\n--- GPS summary ---", file=sys.stderr)
+            print(gps_log_summary(rows), file=sys.stderr)
+        return 130 if result.interrupted else 0
 
     if is_serial_source(args.source):
         lines: Iterable[str] = serial_lines(args.source, args.baud)
@@ -417,17 +735,18 @@ def main(argv: list[str] | None = None) -> int:
         label = f"Reading {args.source}"
 
     if args.monitor:
-        print(f"{label} — Ctrl-C to stop.", file=sys.stderr)
+        print(f"{label} — Ctrl-C to stop (port stays open until you exit).", file=sys.stderr)
         try:
             monitor_stream(lines)
         except KeyboardInterrupt:
-            print("\nStopped.", file=sys.stderr)
-        return 0
+            print("\nStopped (serial port closed).", file=sys.stderr)
+        return 130
 
     if is_serial_source(args.source):
         print(f"{label} — Ctrl-C to stop.", file=sys.stderr)
 
     records: list[Record] = []
+    interrupted = False
     try:
         for rec, method in iter_records(lines, key, verify=verify):
             records.append(rec)
@@ -437,12 +756,13 @@ def main(argv: list[str] | None = None) -> int:
                     hit.add_signal("ESP32_LIVE", method)
                 print(_summary(hit, method))
     except KeyboardInterrupt:
-        print("\nStopped.", file=sys.stderr)
+        interrupted = True
+        print(f"\nStopped after {len(records)} detection(s).", file=sys.stderr)
 
     if args.output:
         n = write_sqlite(records, args.output)
         print(f"Wrote {n} record(s) -> {args.output}", file=sys.stderr)
-    return 0
+    return 130 if interrupted else 0
 
 
 if __name__ == "__main__":

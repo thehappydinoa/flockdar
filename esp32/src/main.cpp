@@ -11,6 +11,7 @@
 #include "config.h"
 #include "protocol.h"
 #include "serial_out.h"
+#include "serial_cmd.h"
 #include "wifi_scanner.h"
 #include "rf_sightings.h"
 
@@ -57,6 +58,16 @@ void setup() {
 }
 
 void loop() {
+#ifdef FD_ENABLE_SD
+  // SD dump/list owns the CPU + serial port — skip scanners so lines don't
+  // interleave with the replay stream and throttle throughput.
+  if (sdlog_host_busy()) {
+    sdlog_dump_poll();
+    serial_cmd_loop();
+    return;
+  }
+#endif
+
   // Drain everything the scanners produced since the last pass.
   Detection d;
   while (g_det_queue && xQueueReceive(g_det_queue, &d, 0) == pdTRUE) {
@@ -71,8 +82,11 @@ void loop() {
   display_loop();
 #endif
 #ifdef FD_ENABLE_SD
+  sdlog_dump_poll();
   sdlog_loop();
 #endif
+
+  serial_cmd_loop();
 
   delay(2);
 }

@@ -65,6 +65,11 @@ static void output_line(const char *line) {
 
 void serial_out_begin() { Serial.begin(FD_SERIAL_BAUD); }
 
+void serial_out_raw(const char *line) {
+  Serial.write((const uint8_t *)line, strlen(line));
+  Serial.write('\n');
+}
+
 void serial_out_info(const char *msg) {
   char line[192];
   snprintf(line, sizeof(line),

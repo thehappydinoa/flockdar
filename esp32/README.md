@@ -70,6 +70,33 @@ Boot emits an `info` line (with `fw`) and an immediate `gps_status` snapshot.
 While acquiring a fix, `gps_status` repeats every 10 s on serial for debugging
 (`uv run flockdar-ingest COM3 --monitor` on Windows).
 
+### SD card over serial
+
+When `FD_ENABLE_SD` is built in (T-Deck env), send these commands over USB serial
+(115200 baud). Responses are the usual JSON `info` lines plus raw NDJSON log
+lines during a dump (not re-written to the card):
+
+| Command | Action |
+|---|---|
+| `sd list` | List `/flock-*.ndjson` files with byte sizes |
+| `sd dump` | Stream the current log file |
+| `sd dump last` | Stream the previous run (skips the active log) |
+| `sd dump /flock-0038.ndjson` | Stream a specific file |
+| `sd abort` | Cancel an in-progress dump |
+
+From the host:
+
+```bash
+uv run flockdar-ingest COM3 --sd-list
+uv run flockdar-ingest COM3 --sd-dump flock-46 flock-0046.ndjson --gps-summary
+uv run flockdar flock-0046.ndjson   # open in TUI
+```
+
+**Faster for large logs:** power off, remove the microSD, and copy `/flock-NNNN.ndjson`
+from the card on your PC (FAT32). Serial dump replays NDJSON line-by-line and suits
+quick checks without removing the card; a 4 KB file should finish in a few seconds
+on fw 0.2.5+.
+
 When GPS has a fix, `wifi` and `ble` lines include `lat`, `lon`, and (when
 available) `accuracy` stamped at emit time. Lines emitted before the first fix
 omit those fields; ingest still accepts standalone `gps` lines to backfill
