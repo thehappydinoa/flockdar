@@ -29,6 +29,14 @@
 // 100k/100k divider; Meshtastic t-deck variant uses ×2.11 for display correction.
 #define TDECK_BAT_ADC_MULT 2.11f
 
+// MAX98357A I2S speaker amp (LilyGO utilities.h: WS 5 / BCK 7 / DOUT 6).
+// NOTE: the pin_spec T-Deck board still lists a vestigial OLED_SDA=7 (the
+// T-Deck has no SSD1306 and uses FD_ENABLE_TDECK_UI, so FD_OLED_SDA is never
+// consumed) — GPIO7 is the I2S bit-clock here.
+#define TDECK_I2S_WS 5
+#define TDECK_I2S_BCK 7
+#define TDECK_I2S_DOUT 6
+
 // Deassert every device on the shared SPI bus (LilyGO setupSD() pattern).
 inline void tdeck_spi_idle() {
   digitalWrite(TDECK_TFT_CS, HIGH);

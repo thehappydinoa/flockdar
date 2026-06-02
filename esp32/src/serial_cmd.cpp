@@ -17,6 +17,7 @@
 #ifdef FD_ENABLE_TDECK_UI
 #include "tdeck_ui.h"
 #endif
+#include "audio.h"
 
 namespace {
 
@@ -38,6 +39,29 @@ void handle_cmd(char *cmd) {
     serial_out_stats(body, n);
     return;
   }
+
+#if defined(FD_ENABLE_AUDIO)
+  if (strncmp(cmd, "sound", 5) == 0 &&
+      (cmd[5] == '\0' || cmd[5] == ' ' || cmd[5] == '\t')) {
+    const char *arg = cmd + 5;
+    while (*arg == ' ' || *arg == '\t') {
+      arg++;
+    }
+    if (strcmp(arg, "on") == 0) {
+      audio_set_muted(false);
+    } else if (strcmp(arg, "off") == 0) {
+      audio_set_muted(true);
+    } else if (strcmp(arg, "test") == 0) {
+      audio_set_muted(false);
+      audio_alert(3);
+    } else if (*arg != '\0') {
+      serial_out_info("sound usage: sound on|off|test");
+      return;
+    }
+    serial_out_info(audio_muted() ? "sound off" : "sound on");
+    return;
+  }
+#endif
 
 #ifdef FD_ENABLE_TDECK_UI
   if (strcmp(cmd, "screenshot") == 0) {

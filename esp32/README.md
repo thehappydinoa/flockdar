@@ -113,6 +113,20 @@ Or bake the default into `platformio.ini`: `-DFD_TZ_OFFSET_MINUTES=-300`.
 Automatic timezone from lat/lon needs an offline zone database (not included);
 DST is not handled — adjust `tz` when clocks change.
 
+### Audio alerts (T-Deck builds)
+
+The T-Deck's MAX98357A I²S speaker chirps on each Flock detection, with a tone
+sequence per confidence tier (HIGH = urgent rising triple-beep, MEDIUM = two-note
+ping, LOW = single blip) plus a power-up chirp. Enabled by `-DFD_ENABLE_AUDIO`
+(on in `env:t-deck`). Tone synthesis lives in `tone_synth.*` (pure, host-tested);
+`audio.cpp` plays cues on a background task so scanning never blocks.
+
+| Command | Action |
+|---|---|
+| `sound on` | Enable alert tones |
+| `sound off` | Mute |
+| `sound test` | Play the HIGH-confidence cue |
+
 From the host:
 
 ```bash

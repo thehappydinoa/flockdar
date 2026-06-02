@@ -23,6 +23,7 @@
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
 #endif
+#include "audio.h"  // no-op stubs unless FD_ENABLE_AUDIO
 
 static void mac_to_str(const uint8_t mac[6], char out[18]) {
   snprintf(out, 18, "%02x:%02x:%02x:%02x:%02x:%02x", mac[0], mac[1], mac[2],
@@ -279,4 +280,9 @@ void serial_out_emit(const Detection &d) {
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_note(d);
 #endif
+
+  // Audible alert on a Flock detection, tiered by confidence (no-op unless
+  // FD_ENABLE_AUDIO). Only wifi/ble detections reach here; GPS lines return
+  // earlier, so this is always a real device hit.
+  audio_alert(flock_det_confidence(type, d.method, d.name, d.has_name));
 }

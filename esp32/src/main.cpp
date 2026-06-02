@@ -30,6 +30,7 @@
 #ifdef FD_ENABLE_SD
 #include "sdlog.h"
 #endif
+#include "audio.h"  // no-op stubs unless FD_ENABLE_AUDIO
 
 #include "esp_task_wdt.h"
 
@@ -65,6 +66,11 @@ void setup() {
   rf_sightings_begin();
   rf_pending_begin();
   tdeck_boot_step("RF INIT", 60);
+#endif
+
+#if defined(FD_ENABLE_AUDIO)
+  audio_begin();
+  audio_play(cue_boot());  // brief power-up chirp
 #endif
 
   if (g_det_queue) {
