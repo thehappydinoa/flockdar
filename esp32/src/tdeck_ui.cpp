@@ -14,6 +14,7 @@
 #include "wifi_scanner.h"
 #include "ble_scanner.h"
 #include "rf_sightings.h"
+#include "stats.h"
 #include "match.h"
 #include "tdeck_icons.h"
 #ifdef FD_ENABLE_GPS
@@ -51,10 +52,14 @@ constexpr int kStatContentY = kBodyTop + 4;
 constexpr int kStatBlockGap = 2;  // divider padding (compact)
 
 struct StatusLayout {
+  int y_fw;
+  int y_det_label;
   int y_det0;
   int y_det1;
   int y_det2;
   int y_ch;
+  int y_drops;
+  int y_heap;
 #ifdef FD_ENABLE_GPS
   int y_gps;
 #endif
@@ -67,7 +72,11 @@ struct StatusLayout {
 
 StatusLayout status_layout() {
   StatusLayout L{};
-  int y = kSectionH + 2;
+  int y = 0;
+  L.y_fw = y;
+  y += kFieldH;
+  L.y_det_label = y;
+  y += kSectionH + 2;
   L.y_det0 = y;
   y += kFieldH;
   L.y_det1 = y;
@@ -75,6 +84,10 @@ StatusLayout status_layout() {
   L.y_det2 = y;
   y += kFieldH;
   L.y_ch = y;
+  y += kFieldH;
+  L.y_drops = y;
+  y += kFieldH;
+  L.y_heap = y;
   y += kFieldH + kStatBlockGap + kStatBlockGap;
 #ifdef FD_ENABLE_GPS
   y += kSectionH + 2;
@@ -158,6 +171,8 @@ Screen s_detail_return = Screen::kList;
 uint32_t s_last_draw = 0;
 bool s_dirty = true;
 uint8_t s_brightness = 16;
+uint32_t s_last_input_ms = 0;
+bool s_display_asleep = false;
 Screen s_painted = Screen::kStatus;
 bool s_status_static = false;
 
@@ -165,6 +180,8 @@ uint32_t s_paint_hits = UINT32_MAX;
 uint8_t s_paint_ch = 255;
 uint32_t s_paint_wifi_rf = 0;
 uint32_t s_paint_ble_rf = 0;
+uint32_t s_paint_drops = UINT32_MAX;
+uint32_t s_paint_min_heap = UINT32_MAX;
 bool s_paint_gps_fix = false;
 bool s_paint_gps_nmea = false;  // nmea_chars >= 10 (not raw count — avoids constant redraw)
 uint8_t s_paint_sats = 255;
@@ -199,6 +216,8 @@ void invalidate_status_paint_cache() {
   s_paint_ch = 255;
   s_paint_wifi_rf = UINT32_MAX;
   s_paint_ble_rf = UINT32_MAX;
+  s_paint_drops = UINT32_MAX;
+  s_paint_min_heap = UINT32_MAX;
   s_paint_gps_fix = !s_paint_gps_fix;
   s_paint_gps_nmea = !s_paint_gps_nmea;
   s_paint_sats = 255;
@@ -321,6 +340,27 @@ void tdeck_set_brightness(uint8_t value) {
   level = value;
 }
 
+void ui_note_input() {
+  s_last_input_ms = millis();
+  if (s_display_asleep) {
+    s_display_asleep = false;
+    tdeck_set_brightness(s_brightness);
+    s_dirty = true;
+  }
+}
+
+void poll_display_sleep() {
+#if FD_DISPLAY_SLEEP_MS > 0
+  if (s_display_asleep) {
+    return;
+  }
+  if (millis() - s_last_input_ms >= (uint32_t)FD_DISPLAY_SLEEP_MS) {
+    s_display_asleep = true;
+    tdeck_set_brightness(0);
+  }
+#endif
+}
+
 void spi_bus_idle() { tdeck_spi_idle(); }
 
 const char *rf_vendor(const RfDevice &d) {
@@ -434,15 +474,16 @@ void poll_battery() {
 void paint_status_static_labels(const StatusLayout &L) {
   char ver[16];
   snprintf(ver, sizeof(ver), "v%s", FD_FW_VERSION);
+  const int y_ver = status_paint_y(L.y_fw);
   tft.setTextDatum(TR_DATUM);
-  chrome.paint_text(tft.width() - 4, kBodyTop + 2, ver, kFontLabel, kTextMuted,
-                    kBg);
+  chrome.paint_text(tft.width() - 4, y_ver, ver, kFontLabel, kTextMuted, kBg);
   tft.setTextDatum(TL_DATUM);
 
-  int y = kStatContentY - s_status_scroll;
-  chrome.paint_section_label(y, "DETECTION");
-  y = kStatContentY + L.y_ch + kFieldH + kStatBlockGap - s_status_scroll;
+  chrome.paint_section_label(status_paint_y(L.y_det_label), "DETECTION");
+  int y = kStatContentY + L.y_heap + kFieldH + kStatBlockGap - s_status_scroll;
   chrome.paint_divider(y);
+  y = kStatContentY + L.y_drops - kSectionH - 2 - s_status_scroll;
+  chrome.paint_section_label(y, "SYSTEM");
 #ifdef FD_ENABLE_GPS
   y = kStatContentY + L.y_gps - kSectionH - 2 - s_status_scroll;
   chrome.paint_section_label(y, "GPS");
@@ -490,6 +531,19 @@ void paint_status_dynamic(bool force) {
     s_paint_ch = ch;
     s_paint_wifi_rf = wifi_rf;
     s_paint_ble_rf = ble_rf;
+  }
+
+  const uint32_t drops = stats_queue_drops();
+  const uint32_t min_heap = stats_min_heap();
+  if (force || drops != s_paint_drops || min_heap != s_paint_min_heap) {
+    snprintf(val, sizeof(val), "%lu", (unsigned long)drops);
+    chrome.paint_field_icon(status_paint_y(L.y_drops), StatusIcon::kWifi,
+                            "Queue drops", val);
+    snprintf(val, sizeof(val), "%lu", (unsigned long)min_heap);
+    chrome.paint_field_icon(status_paint_y(L.y_heap), StatusIcon::kBle,
+                            "Min heap", val);
+    s_paint_drops = drops;
+    s_paint_min_heap = min_heap;
   }
 
 #ifdef FD_ENABLE_GPS
@@ -955,6 +1009,7 @@ void paint_help(bool force) {
       "  j k     page / scroll list",
       "  g G     last / first row",
       "  + -     brightness",
+      "  idle    backlight off (key/wake)",
       nullptr,
   };
   int y = kListTopY;
@@ -1223,6 +1278,7 @@ void poll_trackball() {
     bool pressed = !digitalRead(pins[i]);
     if (pressed == last_dir[i]) continue;
     last_dir[i] = pressed;
+    ui_note_input();
     if (!pressed) continue;
 
     if (s_screen == Screen::kHelp) {
@@ -1283,6 +1339,7 @@ void poll_trackball() {
 }
 
 void handle_key(char key) {
+  ui_note_input();
   if (millis() < s_help_key_block_until) {
     return;
   }
@@ -1521,6 +1578,7 @@ void tdeck_ui_begin() {
   s_last_bat_poll = 0;
   poll_battery();
 
+  s_last_input_ms = millis();
   s_last_draw = millis();
   s_dirty = true;
 }
@@ -1531,6 +1589,7 @@ void tdeck_ui_note(const Detection &d) {
     return;
   }
   push_hit(d);
+  ui_note_input();
 }
 
 void tdeck_ui_loop() {
@@ -1538,6 +1597,11 @@ void tdeck_ui_loop() {
   poll_battery();
   poll_trackball();
   poll_keyboard();
+  poll_display_sleep();
+
+  if (s_display_asleep) {
+    return;
+  }
 
   if (s_screen == Screen::kStatus &&
       wifi_scanner_channel() != s_paint_ch) {

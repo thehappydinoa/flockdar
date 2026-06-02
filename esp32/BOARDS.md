@@ -38,6 +38,8 @@ Nearby carousel) plus HMAC-signed NDJSON on USB and optional SD logs.
 - GPS-stamped `wifi` / `ble` lines when fix is available
 - SD files: `/flock-0001.ndjson`, … (FAT32 card, 32 GB or less recommended)
 - USB serial at **115200** baud for `flockdar --serial` or `flockdar-ingest`
+- Serial command `stats` for queue/heap diagnostics; long-run validation: [SOAK.md](SOAK.md)
+- Status screen scrolls all fields (including firmware version). Backlight turns off after **2 minutes** idle (`FD_DISPLAY_SLEEP_MS` in `config.h`); any keyboard key or trackball movement wakes it. New Flock hits also wake the display.
 
 ### GPS (T-Deck Plus only)
 

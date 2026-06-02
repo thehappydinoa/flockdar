@@ -12,5 +12,8 @@
 
 #include <stddef.h>
 
+void signing_begin();
+void signing_end();
+
 // Writes 8 lowercase hex chars + NUL into out (>= 9 bytes).
 void hmac_sig(const char *data, size_t len, char out[9]);

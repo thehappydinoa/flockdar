@@ -12,8 +12,13 @@
 #include "protocol.h"
 #include "serial_out.h"
 #include "serial_cmd.h"
+#include "stats.h"
 #include "wifi_scanner.h"
+
+#ifdef FD_ENABLE_TDECK_UI
+#include "rf_pending.h"
 #include "rf_sightings.h"
+#endif
 
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
@@ -25,13 +30,19 @@
 #include "sdlog.h"
 #endif
 
+#include "esp_task_wdt.h"
+
 QueueHandle_t g_det_queue = nullptr;
 
 void setup() {
   serial_out_begin();
   delay(200);
 
+  stats_begin();
   g_det_queue = xQueueCreate(64, sizeof(Detection));
+  if (!g_det_queue) {
+    serial_out_info("fatal: detection queue alloc failed");
+  }
 
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_begin();
@@ -43,9 +54,15 @@ void setup() {
   gps_begin();
 #endif
 
+#ifdef FD_ENABLE_TDECK_UI
   rf_sightings_begin();
-  wifi_scanner_begin();
-  ble_scanner_begin();
+  rf_pending_begin();
+#endif
+
+  if (g_det_queue) {
+    wifi_scanner_begin();
+    ble_scanner_begin();
+  }
 
   {
     char msg[32];
@@ -68,13 +85,26 @@ void loop() {
   }
 #endif
 
-  // Drain everything the scanners produced since the last pass.
   Detection d;
-  while (g_det_queue && xQueueReceive(g_det_queue, &d, 0) == pdTRUE) {
+  for (int i = 0; i < FD_QUEUE_DRAIN_MAX; i++) {
+    if (!g_det_queue || xQueueReceive(g_det_queue, &d, 0) != pdTRUE) {
+      break;
+    }
     serial_out_emit(d);
+    yield();
+    esp_task_wdt_reset();
   }
 
+#ifdef FD_ENABLE_TDECK_UI
+  rf_pending_drain();
+#endif
+
   wifi_scanner_loop();  // channel hop
+
+  // Handle host commands before periodic gps_status / SD work so responses
+  // are not emitted back-to-back in the same loop pass.
+  serial_cmd_loop();
+
 #ifdef FD_ENABLE_GPS
   gps_loop();
 #endif
@@ -86,7 +116,7 @@ void loop() {
   sdlog_loop();
 #endif
 
-  serial_cmd_loop();
+  stats_loop();
 
   delay(2);
 }

@@ -6,6 +6,22 @@
 #include "config.h"
 
 #ifdef FD_ENABLE_GPS
+// Thread-safe fix snapshot (updated only from gps_loop on the main task).
+struct GpsSnapshot {
+  bool fix_valid;
+  double lat;
+  double lon;
+  double alt;
+  double accuracy;
+  bool utc_valid;
+  uint16_t utc_year;
+  uint8_t utc_month;
+  uint8_t utc_day;
+  uint8_t utc_hour;
+  uint8_t utc_minute;
+  uint8_t utc_second;
+};
+
 struct GpsUtcTime {
   uint16_t year;
   uint8_t month;

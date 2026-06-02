@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "serial_out.h"
+#include "stats.h"
 
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
@@ -25,6 +26,13 @@ void handle_cmd(char *cmd) {
     cmd++;
   }
   if (*cmd == '\0') {
+    return;
+  }
+
+  if (strcmp(cmd, "stats") == 0) {
+    char body[256];
+    const size_t n = stats_format_json(body, sizeof(body));
+    serial_out_stats(body, n);
     return;
   }
 

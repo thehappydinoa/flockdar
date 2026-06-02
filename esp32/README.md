@@ -72,6 +72,12 @@ While acquiring a fix, `gps_status` repeats every 30 s. Once a fix is held,
 `gps_status` and standalone `gps` position lines are suppressed until the fix
 is lost (then status resumes while re-acquiring).
 
+### Diagnostics
+
+Type `stats` on the serial console for a JSON snapshot: `queue_drops`, `emits`,
+`wifi_mgmt`, `ble_adverts`, `free_heap`, `min_heap`. Long-run validation:
+[SOAK.md](SOAK.md).
+
 ### SD card over serial
 
 When `FD_ENABLE_SD` is built in (T-Deck env), send these commands over USB serial

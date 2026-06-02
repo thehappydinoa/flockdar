@@ -4,9 +4,14 @@
 #include <NimBLEDevice.h>
 #include <string.h>
 
+#include "flock_dedup.h"
 #include "match.h"
 #include "protocol.h"
-#include "rf_sightings.h"
+#include "stats.h"
+
+#ifdef FD_ENABLE_TDECK_UI
+#include "rf_pending.h"
+#endif
 
 namespace {
 
@@ -90,13 +95,16 @@ class FlockScanCallbacks : public NimBLEAdvertisedDeviceCallbacks {
       ad_walk(payload, pay_len, ble_ad_parse, &ctx);
     }
 
+#ifdef FD_ENABLE_TDECK_UI
     if (d.has_mac) {
-      rf_sightings_note_ble(d.mac, d.has_name ? d.name : nullptr, d.rssi,
-                            d.has_mfgrid ? d.mfgrid : 0, d.has_mfgrid);
+      rf_pending_note_ble(d.mac, d.has_name ? d.name : nullptr, d.rssi,
+                          d.has_mfgrid ? d.mfgrid : 0, d.has_mfgrid);
     }
+#endif
 
-    if (!g_det_queue || !ctx.flock || !d.has_mac) return;
-    xQueueSend(g_det_queue, &d, 0);
+    if (!ctx.flock || !d.has_mac) return;
+    if (!flock_dedup_allow(d.mac, d.method)) return;
+    stats_queue_send(d);
   }
 };
 

@@ -407,7 +407,7 @@ bool sdlog_dump_poll() {
 
   auto flush_batch = [&]() {
     if (batch_n > 0) {
-      Serial.write((const uint8_t *)batch, batch_n);
+      serial_out_usb_write((const uint8_t *)batch, batch_n);
       batch_n = 0;
     }
   };
@@ -420,8 +420,16 @@ bool sdlog_dump_poll() {
       flush_batch();
     }
     if (len + 1 > sizeof(batch)) {
-      Serial.write((const uint8_t *)line, len);
-      Serial.write('\n');
+      char buf[520];
+      if (len + 1 <= sizeof(buf)) {
+        memcpy(buf, line, len);
+        buf[len] = '\n';
+        serial_out_usb_write((const uint8_t *)buf, len + 1);
+      } else {
+        serial_out_usb_write((const uint8_t *)line, len);
+        const char nl = '\n';
+        serial_out_usb_write((const uint8_t *)&nl, 1);
+      }
       return;
     }
     memcpy(batch + batch_n, line, len);
@@ -429,14 +437,35 @@ bool sdlog_dump_poll() {
     batch[batch_n++] = '\n';
   };
 
+  static char line[512];
   const uint32_t until = millis() + 40;
   while (millis() < until && s_dump_file.available()) {
-    String row = s_dump_file.readStringUntil('\n');
-    row.trim();
-    if (row.length() == 0) {
+    size_t n = 0;
+    while (s_dump_file.available()) {
+      const int c = s_dump_file.read();
+      if (c < 0) {
+        break;
+      }
+      if (c == '\n' || c == '\r') {
+        if (c == '\r' && s_dump_file.peek() == '\n') {
+          s_dump_file.read();
+        }
+        break;
+      }
+      if (n + 1 < sizeof(line)) {
+        line[n++] = (char)c;
+      }
+    }
+    if (n == 0) {
       continue;
     }
-    emit_line(row.c_str(), (size_t)row.length());
+    while (n > 0 && (line[n - 1] == ' ' || line[n - 1] == '\t')) {
+      n--;
+    }
+    if (n == 0) {
+      continue;
+    }
+    emit_line(line, n);
     s_dump_lines++;
   }
   flush_batch();

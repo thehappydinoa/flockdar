@@ -7,6 +7,9 @@
 #include "config.h"
 #include "match.h"
 #include "signing.h"
+#include "stats.h"
+
+#include "freertos/FreeRTOS.h"
 
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
 #include "display.h"
@@ -54,21 +57,72 @@ static void json_escape(const char *in, char *out, size_t outsz) {
   out[o] = '\0';
 }
 
+static portMUX_TYPE s_serial_mux = portMUX_INITIALIZER_UNLOCKED;
+
+// All USB serial output must hold this lock so two Serial.write calls from
+// different code paths cannot interleave (e.g. gps_status + stats response).
+static void serial_usb_write(const uint8_t *data, size_t len) {
+  if (len == 0) {
+    return;
+  }
+  portENTER_CRITICAL(&s_serial_mux);
+  Serial.write(data, len);
+  portEXIT_CRITICAL(&s_serial_mux);
+}
+
+static void serial_usb_write_line(const char *line) {
+  const size_t n = strlen(line);
+  char buf[544];
+  if (n + 1 <= sizeof(buf)) {
+    if (n > 0) {
+      memcpy(buf, line, n);
+    }
+    buf[n] = '\n';
+    serial_usb_write((const uint8_t *)buf, n + 1);
+    return;
+  }
+  portENTER_CRITICAL(&s_serial_mux);
+  Serial.write((const uint8_t *)line, n);
+  Serial.write('\n');
+  portEXIT_CRITICAL(&s_serial_mux);
+}
+
+void serial_out_usb_write(const uint8_t *data, size_t len) {
+  serial_usb_write(data, len);
+}
+
 // Single output path for every JSON line: USB serial and (if built) the SD
 // card log. The line must NOT already contain a trailing newline.
 static void output_line(const char *line) {
-  Serial.write((const uint8_t *)line, strlen(line));
-  Serial.write('\n');
+  serial_usb_write_line(line);
 #ifdef FD_ENABLE_SD
   sdlog_write(line);
 #endif
 }
 
-void serial_out_begin() { Serial.begin(FD_SERIAL_BAUD); }
+void serial_out_begin() {
+  Serial.begin(FD_SERIAL_BAUD);
+  signing_begin();
+}
 
-void serial_out_raw(const char *line) {
-  Serial.write((const uint8_t *)line, strlen(line));
-  Serial.write('\n');
+void serial_out_raw(const char *line) { serial_usb_write_line(line); }
+
+void serial_out_stats(const char *stats_json, size_t stats_len) {
+  if (!stats_json) {
+    return;
+  }
+  char line[384];
+  const int w = snprintf(
+      line, sizeof(line),
+      "{\"v\":%d,\"type\":\"info\",\"fw\":\"%s\",\"msg\":\"stats\","
+      "\"stats\":%.*s,\"ts_ms\":%lu}",
+      FD_PROTO_VERSION, FD_FW_VERSION, (int)stats_len, stats_json,
+      (unsigned long)millis());
+  if (w < 0 || (size_t)w >= sizeof(line)) {
+    serial_out_info("stats response truncated");
+    return;
+  }
+  output_line(line);
 }
 
 void serial_out_info(const char *msg) {
@@ -85,14 +139,18 @@ void serial_out_info(const char *msg) {
 #ifdef FD_ENABLE_GPS
 void serial_out_gps_status(uint32_t nmea_chars, uint8_t sats, bool fix,
                            bool module, const char *chip) {
-  char line[224];
-  snprintf(line, sizeof(line),
-           "{\"v\":%d,\"type\":\"gps_status\",\"fw\":\"%s\",\"nmea\":%lu,"
-           "\"sats\":%u,\"fix\":%s,\"module\":%s,\"chip\":\"%s\","
-           "\"ts_ms\":%lu}",
-           FD_PROTO_VERSION, FD_FW_VERSION, (unsigned long)nmea_chars,
-           (unsigned)sats, fix ? "true" : "false", module ? "true" : "false",
-           chip ? chip : "unknown", (unsigned long)millis());
+  char line[280];
+  const int w = snprintf(
+      line, sizeof(line),
+      "{\"v\":%d,\"type\":\"gps_status\",\"fw\":\"%s\",\"nmea\":%lu,"
+      "\"sats\":%u,\"fix\":%s,\"module\":%s,\"chip\":\"%s\","
+      "\"ts_ms\":%lu}",
+      FD_PROTO_VERSION, FD_FW_VERSION, (unsigned long)nmea_chars,
+      (unsigned)sats, fix ? "true" : "false", module ? "true" : "false",
+      chip ? chip : "unknown", (unsigned long)millis());
+  if (w < 0 || (size_t)w >= sizeof(line)) {
+    return;
+  }
   output_line(line);
 }
 #endif
@@ -178,6 +236,7 @@ void serial_out_emit(const Detection &d) {
   // %.*s copies body without its trailing '}'.
   snprintf(line, sizeof(line), "%.*s,\"sig\":\"%s\"}", n - 1, body, sig);
   output_line(line);
+  stats_note_emit();
 
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
   display_note(d);

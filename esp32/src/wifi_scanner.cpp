@@ -7,9 +7,14 @@
 #include "esp_wifi.h"
 
 #include "config.h"
+#include "flock_dedup.h"
 #include "match.h"
 #include "protocol.h"
-#include "rf_sightings.h"
+#include "stats.h"
+
+#ifdef FD_ENABLE_TDECK_UI
+#include "rf_pending.h"
+#endif
 
 // 2.4 GHz primaries — the only channels Flock cameras are seen on.
 static const uint8_t HOP_CHANNELS[] = {1, 6, 11};
@@ -25,7 +30,9 @@ static const uint8_t SUBTYPE_PROBE_REQ = 0x04;
 
 static void enqueue_wifi(const char *method, const uint8_t mac[6], int rssi,
                          uint8_t channel) {
-  if (!g_det_queue) return;
+  if (!flock_dedup_allow(mac, method)) {
+    return;
+  }
   Detection d;
   det_init(d, DET_WIFI);
   strncpy(d.method, method, sizeof(d.method) - 1);
@@ -37,11 +44,10 @@ static void enqueue_wifi(const char *method, const uint8_t mac[6], int rssi,
   d.channel = channel;
   d.has_channel = true;
   d.ts_ms = millis();
-  // Non-blocking: drop the frame rather than stall the WiFi task if full.
-  xQueueSend(g_det_queue, &d, 0);
+  stats_queue_send(d);
 }
 
-static void promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
+static void IRAM_ATTR promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   if (type != WIFI_PKT_MGMT) return;
   s_mgmt_frames++;
   const wifi_promiscuous_pkt_t *pkt = (const wifi_promiscuous_pkt_t *)buf;
@@ -61,9 +67,11 @@ static void promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
 
   // Skip multicast and locally-administered (randomized) WiFi MACs — no stable
   // OUI to label; AP/camera BSSIDs use universal addresses.
+#ifdef FD_ENABLE_TDECK_UI
   if ((addr2[0] & 0x03) == 0) {
-    rf_sightings_note_wifi(addr2, rssi, ch);
+    rf_pending_note_wifi(addr2, rssi, ch);
   }
+#endif
 
   // 1+2. addr2 transmitter — a Flock device actively sending a frame.
   if (oui_is_flock(addr2)) enqueue_wifi("addr2", addr2, rssi, ch);

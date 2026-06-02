@@ -9,6 +9,7 @@
 
 #include "protocol.h"
 #include "serial_out.h"
+#include "stats.h"
 
 static TinyGPSPlus s_gps;
 static HardwareSerial s_serial(FD_GPS_UART);
@@ -17,6 +18,29 @@ static bool s_module_present = true;
 static bool s_last_fix = false;
 static uint32_t s_uart_baud = FD_GPS_BAUD;
 static int16_t s_tz_offset_min = FD_TZ_OFFSET_MINUTES;
+static GpsSnapshot s_snap{};
+static portMUX_TYPE s_snap_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void gps_refresh_snapshot() {
+  portENTER_CRITICAL(&s_snap_mux);
+  s_snap.fix_valid = s_gps.location.isValid();
+  if (s_snap.fix_valid) {
+    s_snap.lat = s_gps.location.lat();
+    s_snap.lon = s_gps.location.lng();
+    s_snap.alt = s_gps.altitude.isValid() ? s_gps.altitude.meters() : 0.0;
+    s_snap.accuracy = s_gps.hdop.isValid() ? s_gps.hdop.hdop() * 2.5 : 0.0;
+  }
+  s_snap.utc_valid = s_gps.date.isValid() && s_gps.time.isValid();
+  if (s_snap.utc_valid) {
+    s_snap.utc_year = s_gps.date.year();
+    s_snap.utc_month = s_gps.date.month();
+    s_snap.utc_day = s_gps.date.day();
+    s_snap.utc_hour = s_gps.time.hour();
+    s_snap.utc_minute = s_gps.time.minute();
+    s_snap.utc_second = s_gps.time.second();
+  }
+  portEXIT_CRITICAL(&s_snap_mux);
+}
 
 #if defined(FD_BOARD_TDECK)
 enum GpsChip { kGpsUnknown, kGpsL76k, kGpsUblox };
@@ -396,12 +420,10 @@ void gps_begin() {
   s_module_present = true;
 #endif
   gps_serial_status(true);
+  gps_refresh_snapshot();
 }
 
-static void gps_emit_fix(const Detection &d) {
-  if (!g_det_queue) return;
-  xQueueSend(g_det_queue, &d, 0);
-}
+static void gps_emit_fix(const Detection &d) { stats_queue_send(d); }
 
 void gps_serial_status(bool force) {
   uint32_t now = millis();
@@ -464,6 +486,7 @@ void gps_loop() {
   }
 
   s_last_fix = fix;
+  gps_refresh_snapshot();
 }
 
 void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,
@@ -486,20 +509,24 @@ void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,
 }
 
 bool gps_current(double *lat, double *lon, double *alt, double *accuracy) {
-  if (!s_gps.location.isValid()) {
+  GpsSnapshot snap;
+  portENTER_CRITICAL(&s_snap_mux);
+  snap = s_snap;
+  portEXIT_CRITICAL(&s_snap_mux);
+  if (!snap.fix_valid) {
     return false;
   }
   if (lat) {
-    *lat = s_gps.location.lat();
+    *lat = snap.lat;
   }
   if (lon) {
-    *lon = s_gps.location.lng();
+    *lon = snap.lon;
   }
   if (alt) {
-    *alt = s_gps.altitude.isValid() ? s_gps.altitude.meters() : 0.0;
+    *alt = snap.alt;
   }
   if (accuracy) {
-    *accuracy = s_gps.hdop.isValid() ? s_gps.hdop.hdop() * 2.5 : 0.0;
+    *accuracy = snap.accuracy;
   }
   return true;
 }
@@ -599,15 +626,19 @@ bool gps_utc_now(GpsUtcTime *out) {
   if (!out) {
     return false;
   }
-  if (!s_gps.date.isValid() || !s_gps.time.isValid()) {
+  GpsSnapshot snap;
+  portENTER_CRITICAL(&s_snap_mux);
+  snap = s_snap;
+  portEXIT_CRITICAL(&s_snap_mux);
+  if (!snap.utc_valid) {
     return false;
   }
-  out->year = s_gps.date.year();
-  out->month = s_gps.date.month();
-  out->day = s_gps.date.day();
-  out->hour = s_gps.time.hour();
-  out->minute = s_gps.time.minute();
-  out->second = s_gps.time.second();
+  out->year = snap.utc_year;
+  out->month = snap.utc_month;
+  out->day = snap.utc_day;
+  out->hour = snap.utc_hour;
+  out->minute = snap.utc_minute;
+  out->second = snap.utc_second;
   return true;
 }
 

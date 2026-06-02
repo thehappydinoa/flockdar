@@ -3,9 +3,40 @@
 #ifdef FD_ENABLE_TDECK_UI
 #include "tdeck_ui.h"
 
+namespace {
+
+constexpr size_t kPendingMax = 8;
+Detection s_pending[kPendingMax];
+size_t s_pending_head = 0;
+size_t s_pending_tail = 0;
+
+bool pending_push(const Detection &d) {
+  const size_t next = (s_pending_head + 1) % kPendingMax;
+  if (next == s_pending_tail) {
+    return false;
+  }
+  s_pending[s_pending_head] = d;
+  s_pending_head = next;
+  return true;
+}
+
+void pending_drain() {
+  while (s_pending_tail != s_pending_head) {
+    tdeck_ui_note(s_pending[s_pending_tail]);
+    s_pending_tail = (s_pending_tail + 1) % kPendingMax;
+  }
+}
+
+}  // namespace
+
 void display_begin() { tdeck_ui_begin(); }
-void display_note(const Detection &d) { tdeck_ui_note(d); }
-void display_loop() { tdeck_ui_loop(); }
+
+void display_note(const Detection &d) { pending_push(d); }
+
+void display_loop() {
+  pending_drain();
+  tdeck_ui_loop();
+}
 
 #elif defined(FD_ENABLE_OLED)
 

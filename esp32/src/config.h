@@ -14,9 +14,19 @@
 // --- Protocol / serial -----------------------------------------------------
 #define FD_PROTO_VERSION 1
 #define FD_SERIAL_BAUD 115200
+
+// Max detection emits per main-loop pass (keeps channel hop + WDT healthy).
+#ifndef FD_QUEUE_DRAIN_MAX
+#define FD_QUEUE_DRAIN_MAX 8
+#endif
+
+// Suppress duplicate Flock queue entries for the same MAC+method (ms).
+#ifndef FD_FLOCK_DEDUP_MS
+#define FD_FLOCK_DEDUP_MS 2000
+#endif
 // Bump when flashing to confirm the new build is running (shown on boot + status).
 #ifndef FD_FW_VERSION
-#define FD_FW_VERSION "0.3.1"
+#define FD_FW_VERSION "0.3.2"
 #endif
 
 // HMAC-SHA256 key shared with the Python receiver so it can reject forged or
@@ -75,3 +85,11 @@
 #define FD_TZ_OFFSET_MINUTES 0
 #endif
 #endif  // FD_ENABLE_GPS
+
+// T-Deck UI: blank backlight after idle (ms). Wake on keyboard or trackball.
+// Set 0 to disable auto sleep.
+#ifdef FD_ENABLE_TDECK_UI
+#ifndef FD_DISPLAY_SLEEP_MS
+#define FD_DISPLAY_SLEEP_MS 120000
+#endif
+#endif  // FD_ENABLE_TDECK_UI
