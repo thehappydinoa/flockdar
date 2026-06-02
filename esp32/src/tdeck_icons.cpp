@@ -167,9 +167,9 @@ void draw_flockdar_logo(TFT_eSPI &tft, int x, int y, uint16_t fg, uint16_t bg) {
 
 void draw_status_icon(TFT_eSPI &tft, StatusIcon icon, int x, int y, uint16_t fg,
                       uint16_t bg) {
-  // 12×12 glyph centered in the 14×14 status field cell.
+  // 12×12 glyph in the 14×14 status field cell, top-aligned with text.
   const int ox = x + 1;
-  const int oy = y + 1;
+  const int oy = y;
 
   switch (icon) {
   case StatusIcon::kFlock:
