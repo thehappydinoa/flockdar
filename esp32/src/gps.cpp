@@ -165,6 +165,21 @@ static void l76k_configure() {
   s_serial.flush();
 }
 
+// Warm configure: skip the $PCAS10,3 factory reset (module retains NVRAM from
+// last boot) and use 100 ms inter-command delays instead of 250 ms.
+static void l76k_configure_warm() {
+  uart_drain(100);
+  s_serial.write("$PCAS04,7*1E\r\n");
+  delay(100);
+  s_serial.write("$PCAS03,1,0,0,0,1,0,0,0,0,0,,,0,0*02\r\n");
+  delay(100);
+  s_serial.write("$PCAS11,3*1E\r\n");
+  delay(100);
+  s_serial.write("$PCAS02,1000*2E\r\n");
+  delay(100);
+  s_serial.flush();
+}
+
 static bool tdeck_try_l76k() {
 #ifndef FD_GPS_UBLOX_ONLY
   s_serial.begin(9600, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
@@ -409,10 +424,74 @@ void gps_begin() {
     }
   }
 #if defined(FD_BOARD_TDECK)
-  s_module_present = tdeck_gps_init();
-  if (!s_module_present) {
-    serial_out_info(
-        "gps init failed - left UART @38400; try outdoors or gps tap");
+  // Try a warm-boot fast path using the chip type cached from last boot.
+  // Saves ~2.6 s by skipping the UART probe timeout and factory reset.
+  // If the warm path produces no NMEA (hardware change / NVRAM cleared), the
+  // cache is wiped and we fall through to the full cold-boot detection path.
+  int cached_chip = 0;
+  uint32_t cached_baud = 0;
+  {
+    Preferences prefs;
+    if (prefs.begin("flockdar", true)) {
+      cached_chip = prefs.getInt("gps_chip", 0);
+      cached_baud = (uint32_t)prefs.getUInt("gps_baud", 0);
+      prefs.end();
+    }
+  }
+
+  bool warm_ok = false;
+  if (cached_chip == 1 && cached_baud > 0) {
+    s_serial.begin((int)cached_baud, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
+    delay(50);
+    l76k_configure_warm();
+    if (uart_sniff(200).nmea_dollar) {
+      s_chip = kGpsL76k;
+      s_uart_baud = cached_baud;
+      s_module_present = true;
+      serial_out_info("gps l76k (warm)");
+      warm_ok = true;
+    }
+  } else if (cached_chip == 2 && cached_baud > 0) {
+    s_serial.begin((int)cached_baud, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
+    delay(100);
+    uart_drain(100);
+    ublox_recovery();
+    ublox_enable_nmea();
+    const UartSniff chk = uart_sniff(300);
+    if (chk.nmea_dollar || chk.ubx_sync) {
+      s_chip = kGpsUblox;
+      s_uart_baud = cached_baud;
+      s_module_present = true;
+      char msg[48];
+      snprintf(msg, sizeof(msg), "gps ublox @%lu (warm)", (unsigned long)cached_baud);
+      serial_out_info(msg);
+      warm_ok = true;
+    }
+  }
+
+  if (!warm_ok) {
+    // Cold-boot or stale cache — clear cached chip so a failed warm path
+    // doesn't keep looping, then run full autodetect.
+    {
+      Preferences prefs;
+      if (prefs.begin("flockdar", false)) {
+        prefs.remove("gps_chip");
+        prefs.remove("gps_baud");
+        prefs.end();
+      }
+    }
+    s_module_present = tdeck_gps_init();
+    if (s_module_present) {
+      Preferences prefs;
+      if (prefs.begin("flockdar", false)) {
+        prefs.putInt("gps_chip", s_chip == kGpsL76k ? 1 : 2);
+        prefs.putUInt("gps_baud", (uint32_t)s_uart_baud);
+        prefs.end();
+      }
+    } else {
+      serial_out_info(
+          "gps init failed - left UART @38400; try outdoors or gps tap");
+    }
   }
 #else
   s_serial.begin(FD_GPS_BAUD, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);

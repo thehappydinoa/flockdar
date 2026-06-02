@@ -151,7 +151,7 @@ static void set_channel(uint8_t ch) {
 void wifi_scanner_begin() {
   WiFi.mode(WIFI_STA);
   WiFi.disconnect();
-  delay(100);
+  delay(20);
   esp_wifi_set_promiscuous(true);
 
   wifi_promiscuous_filter_t filter = {};

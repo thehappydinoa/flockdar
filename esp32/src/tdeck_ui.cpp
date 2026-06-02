@@ -1447,7 +1447,7 @@ bool tdeck_mount_sd(bool hard_reset, char *err, size_t err_len,
 void tdeck_ui_begin() {
   pinMode(TDECK_POWERON, OUTPUT);
   digitalWrite(TDECK_POWERON, HIGH);
-  delay(150);  // SD / peripheral rail stabilize (LilyGO POWERON pattern)
+  delay(100);  // SD / peripheral rail stabilize (LilyGO POWERON pattern)
 
   pinMode(TDECK_TFT_CS, OUTPUT);
   pinMode(TDECK_RADIO_CS, OUTPUT);
@@ -1491,7 +1491,7 @@ void tdeck_ui_begin() {
     const int ahead = beam_x + kBeamW;
     if (ahead < w)
       tft.fillRect(ahead, kScanY, w - ahead, kScanH, kBg);
-    delay(30);
+    delay(15);
   }
   // Leave a dim full-width bar; tdeck_boot_step will replace it with the
   // framed progress bar on the first call from main.cpp.
@@ -1506,7 +1506,7 @@ void tdeck_ui_begin() {
   pinMode(TDECK_TBOX_DOWN, INPUT_PULLUP);
 
   Wire.begin(TDECK_I2C_SDA, TDECK_I2C_SCL);
-  delay(100);
+  delay(50);
   Wire.beginTransmission(TDECK_KB_ADDR);
   s_kb = (Wire.endTransmission() == 0);
 

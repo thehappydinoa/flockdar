@@ -37,7 +37,7 @@ QueueHandle_t g_det_queue = nullptr;
 
 void setup() {
   serial_out_begin();
-  delay(200);
+  delay(50);
 
   stats_begin();
   g_det_queue = xQueueCreate(64, sizeof(Detection));
@@ -88,7 +88,7 @@ void setup() {
 #endif
 #ifdef FD_ENABLE_TDECK_UI
   tdeck_boot_step("READY", 100);
-  delay(500);
+  delay(200);
 #endif
 }
 
