@@ -66,9 +66,10 @@ bool label_is_phone(const char *label) {
 bool vendor_is_camera(const char *vendor) {
   if (!vendor) return false;
   static const char *kCams[] = {
-      "Hikvision", "Dahua",  "Reolink", "Wyze",   "Ring",     "Furbo",
-      "Axis",      "Avigilon","FLIR",   "Hanwha",  "GeoVision","March",
-      "Mobotix",   "Sunell",  "Bosch",  "Pelco",   "Vivotek",  "Uniview",
+      "Hikvision", "Dahua",   "Reolink", "Wyze",   "Ring",     "Furbo",
+      "Axis",      "Avigilon","FLIR",    "Hanwha",  "GeoVision","March",
+      "Mobotix",   "Sunell",  "Bosch",   "Pelco",   "Vivotek",  "Uniview",
+      "Arlo",      "Eufy",    "Blink",
       nullptr,
   };
   for (const char **p = kCams; *p; p++) {
@@ -99,6 +100,10 @@ const char *dev_icon_label(DevIcon icon) {
     return "tracker";
   case DevIcon::kBoot:
     return "boot";
+  case DevIcon::kLight:
+    return "light";
+  case DevIcon::kLock:
+    return "lock";
   default:
     return "device";
   }
@@ -139,7 +144,8 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     }
     if (ci_contains(label, "tile") || ci_contains(label, "tracker") ||
         ci_contains(label, "tag") || ci_contains(label, "chipolo") ||
-        ci_contains(label, "fixd")) {
+        ci_contains(label, "fixd") || ci_contains(label, "findmy") ||
+        ci_contains(label, "airtag")) {
       return DevIcon::kTracker;
     }
     if (ci_contains(label, "quest") || ci_contains(label, "surface")) {
@@ -148,6 +154,18 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     if (ci_contains(label, "camera") || ci_contains(label, "cam") ||
         ci_contains(label, "furbo") || ci_contains(label, "wyze")) {
       return DevIcon::kCamera;
+    }
+    if (ci_contains(label, "govee") || ci_contains(label, "ihoment") ||
+        ci_contains(label, "lifx") || ci_contains(label, "tuya") ||
+        ci_contains(label, "elk-bledom") || ci_contains(label, "bulb") ||
+        ci_contains(label, "hue") || ci_contains(label, "smart light") ||
+        ci_contains(label, "led strip") || ci_contains(label, "coolled")) {
+      return DevIcon::kLight;
+    }
+    if (ci_contains(label, "lock") || ci_contains(label, "august") ||
+        ci_contains(label, "yale") || ci_contains(label, "kwikset") ||
+        ci_contains(label, "schlage")) {
+      return DevIcon::kLock;
     }
     if (d.has_mfgrid && d.mfgrid == 737) return DevIcon::kTracker;
     // Apple mfgrid 76: by the time we reach here the label hasn't matched
@@ -163,6 +181,12 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     if (vendor_is(vendor, "Garmin") || vendor_is(vendor, "Fitbit")) {
       return DevIcon::kWatch;
     }
+    if (vendor_is(vendor, "Govee") || vendor_is(vendor, "Philips Hue")) {
+      return DevIcon::kLight;
+    }
+    if (vendor_is(vendor, "Schlage") || vendor_is(vendor, "August")) {
+      return DevIcon::kLock;
+    }
     if (label_is_phone(label)) {
       return DevIcon::kPhone;
     }
@@ -174,16 +198,50 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
   // Check before vendor lookup since OUI is meaningless for random MACs.
   if (laa) return DevIcon::kPhone;
 
+  // SSID-based hints (label = SSID from beacon/probe response, or "mgmt").
+  if (label && label[0] && strcmp(label, "mgmt") != 0) {
+    if (ci_contains(label, "ring") || ci_contains(label, "arlo") ||
+        ci_contains(label, "blink") || ci_contains(label, "wyze") ||
+        ci_contains(label, "cam")) {
+      return DevIcon::kCamera;
+    }
+    if (ci_contains(label, "iphone") || ci_contains(label, "android") ||
+        ci_contains(label, "galaxy") || ci_contains(label, "hotspot") ||
+        ci_contains(label, "direct-")) {
+      return DevIcon::kPhone;
+    }
+    if (ci_contains(label, "chromecast") || ci_contains(label, "roku") ||
+        ci_contains(label, "fire tv") || ci_contains(label, "firetv")) {
+      return DevIcon::kTv;
+    }
+    if (ci_contains(label, "echo") || ci_contains(label, "sonos") ||
+        ci_contains(label, "homepod")) {
+      return DevIcon::kSpeaker;
+    }
+    if (ci_contains(label, "hue bridge") || ci_contains(label, "lifx") ||
+        ci_contains(label, "govee") || ci_contains(label, "tuya")) {
+      return DevIcon::kLight;
+    }
+  }
+
   if (vendor_is_camera(vendor)) return DevIcon::kCamera;
   if (vendor_is(vendor, "Roku")) return DevIcon::kTv;
   if (vendor_is(vendor, "Sonos") || vendor_is(vendor, "Bose")) {
     return DevIcon::kSpeaker;
   }
   if (vendor_is(vendor, "Apple")) return DevIcon::kPhone;
+  if (vendor_is(vendor, "LG") || vendor_is(vendor, "Vizio")) {
+    return DevIcon::kTv;
+  }
   if (vendor_is(vendor, "Synology") || vendor_is(vendor, "Intel") ||
       vendor_is(vendor, "Microsoft") || vendor_is(vendor, "HP") ||
-      vendor_is(vendor, "HPE") || vendor_is(vendor, "Meta")) {
+      vendor_is(vendor, "HPE") || vendor_is(vendor, "Meta") ||
+      vendor_is(vendor, "Dell") || vendor_is(vendor, "Lenovo") ||
+      vendor_is(vendor, "Sony") || vendor_is(vendor, "Nintendo")) {
     return DevIcon::kComputer;
+  }
+  if (vendor_is(vendor, "Schlage") || vendor_is(vendor, "August")) {
+    return DevIcon::kLock;
   }
   if (vendor_is_router(vendor)) return DevIcon::kRouter;
   return DevIcon::kUnknown;
@@ -299,6 +357,17 @@ void draw_dev_icon(TFT_eSPI &tft, DevIcon icon, int x, int y, uint16_t fg,
     break;
   case DevIcon::kBoot:
     draw_boot_icon(tft, x - 1, y - 1, fg, bg);
+    break;
+  case DevIcon::kLight:
+    tft.fillRoundRect(x + 4, y + 2, 6, 6, 3, fg);   // bulb head
+    tft.fillRect(x + 5, y + 8, 4, 3, fg);             // base
+    tft.drawFastHLine(x + 5, y + 11, 4, fg);          // base bottom
+    break;
+  case DevIcon::kLock:
+    tft.drawRoundRect(x + 4, y + 1, 6, 4, 2, fg);    // shackle arc
+    tft.fillRoundRect(x + 3, y + 5, 8, 7, 1, fg);    // body
+    tft.fillCircle(x + 7, y + 8, 1, bg);              // keyhole dot
+    tft.drawFastVLine(x + 7, y + 9, 2, bg);           // keyhole slot
     break;
   default:
     tft.drawCircle(x + 7, y + 7, 3, fg);

@@ -366,6 +366,9 @@ VENDOR_OUIS: dict[str, str] = {
     "24:de:c6": "Aruba",
     "6c:f3:7f": "Aruba",
     "9c:1c:12": "Aruba",
+    # --- Arlo ---
+    "18:b9:05": "Arlo",
+    "44:07:0b": "Arlo",
     # --- Askey ---
     "00:21:63": "Askey",
     "08:b0:55": "Askey",
@@ -387,6 +390,9 @@ VENDOR_OUIS: dict[str, str] = {
     "94:44:52": "Belkin",
     "d8:ec:5e": "Belkin",
     "e8:9f:80": "Belkin",
+    # --- Blink ---
+    "30:91:8f": "Blink",
+    "d0:2f:93": "Blink",
     # --- Bosch ---
     "00:04:63": "Bosch",
     "00:07:5f": "Bosch",
@@ -461,6 +467,12 @@ VENDOR_OUIS: dict[str, str] = {
     "a0:a3:f0": "D-Link",
     "bc:0f:9a": "D-Link",
     "bc:22:28": "D-Link",
+    # --- Dell ---
+    "00:14:22": "Dell",
+    "00:22:19": "Dell",
+    "18:03:73": "Dell",
+    "b8:ca:3a": "Dell",
+    "f4:8e:38": "Dell",
     # --- Dahua ---
     "08:ed:ed": "Dahua",
     "24:48:45": "Dahua",
@@ -476,6 +488,12 @@ VENDOR_OUIS: dict[str, str] = {
     "b8:7c:f2": "Extreme",
     "e0:a1:29": "Extreme",
     "f4:ea:b5": "Extreme",
+    # --- Epson ---
+    "00:1b:e9": "Epson",
+    "04:23:82": "Epson",
+    "00:26:ab": "Epson",
+    # --- Eufy ---
+    "d0:73:d5": "Eufy",
     # --- FLIR ---
     "00:13:56": "FLIR",
     "00:1b:d8": "FLIR",
@@ -575,6 +593,18 @@ VENDOR_OUIS: dict[str, str] = {
     "c0:c1:c0": "Linksys",
     "c4:41:1e": "Linksys",
     "c8:d7:19": "Linksys",
+    # --- Lenovo ---
+    "00:21:cc": "Lenovo",
+    "04:33:89": "Lenovo",
+    "08:2a:37": "Lenovo",
+    "28:d2:44": "Lenovo",
+    "98:fa:9b": "Lenovo",
+    # --- LG ---
+    "00:1c:62": "LG",
+    "00:aa:70": "LG",
+    "38:e7:d8": "LG",
+    "a0:39:f7": "LG",
+    "c8:9f:1c": "LG",
     # --- March ---
     "00:10:be": "March",
     "00:12:81": "March",
@@ -625,6 +655,13 @@ VENDOR_OUIS: dict[str, str] = {
     "a0:04:60": "Netgear",
     "c0:3f:0e": "Netgear",
     "dc:ef:09": "Netgear",
+    # --- Nintendo ---
+    "00:09:bf": "Nintendo",
+    "00:16:56": "Nintendo",
+    "00:17:ab": "Nintendo",
+    "7c:bb:8a": "Nintendo",
+    "98:b6:e9": "Nintendo",
+    "98:e8:fa": "Nintendo",
     # --- Pegatron ---
     "0c:54:a5": "Pegatron",
     "20:25:64": "Pegatron",
@@ -711,6 +748,12 @@ VENDOR_OUIS: dict[str, str] = {
     "5c:aa:fd": "Sonos",
     "78:28:ca": "Sonos",
     "94:9f:3e": "Sonos",
+    # --- Sony ---
+    "00:04:1f": "Sony",
+    "00:d9:d1": "Sony",
+    "28:be:b7": "Sony",
+    "ac:9b:0a": "Sony",
+    "d8:d4:3c": "Sony",
     # --- Sunell ---
     "00:1c:27": "Sunell",
     # --- Synology ---
@@ -809,6 +852,7 @@ BLE_VENDOR_IDS: dict[int, str] = {
     13: "Plantronics",
     17: "Motorola",
     76: "Apple",
+    87: "Harman",        # JBL, AKG, Harman Kardon parent
     89: "Texas Instruments",
     115: "Honeywell",
     117: "Samsung",

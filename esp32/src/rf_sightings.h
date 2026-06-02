@@ -8,7 +8,7 @@ struct RfDevice {
   char mac[18];
   uint8_t mac_raw[6];
   char kind[5];   // "wifi" | "ble"
-  char label[24]; // BLE name or WiFi subtype hint
+  char label[33]; // BLE name or WiFi SSID (max 32 chars + NUL)
   int rssi;
   uint8_t channel;
   uint32_t seen;
@@ -28,7 +28,8 @@ struct RfDevice {
 };
 
 void rf_sightings_begin();
-void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel);
+void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel,
+                            const char *ssid = nullptr);
 void rf_sightings_note_ble(const uint8_t mac[6], const char *name, int rssi,
                            uint16_t mfgrid = 0, bool has_mfgrid = false);
 

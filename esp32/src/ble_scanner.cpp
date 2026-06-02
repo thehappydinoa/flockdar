@@ -70,6 +70,22 @@ static bool ble_ad_parse(uint8_t type, const uint8_t *data, uint8_t data_len,
     }
     return false;
   }
+
+  // AD types 0x02 (incomplete) and 0x03 (complete) 16-bit service UUID lists.
+  // Apple Find My network uses UUID 0xFD44 — present on AirTags and Find My
+  // accessories. Set the name to "FindMy" so label-based kTracker detection fires.
+  if ((type == 0x02 || type == 0x03) && data_len >= 2) {
+    for (uint8_t i = 0; i + 1 < data_len; i += 2) {
+      const uint16_t uuid = (uint16_t)data[i] | ((uint16_t)data[i + 1] << 8);
+      if (uuid == 0xFD44 && !d.has_name) {
+        strncpy(d.name, "FindMy", sizeof(d.name) - 1);
+        d.name[sizeof(d.name) - 1] = '\0';
+        d.has_name = true;
+      }
+    }
+    return false;
+  }
+
   return false;
 }
 

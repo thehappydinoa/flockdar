@@ -18,7 +18,9 @@ enum class DevIcon : uint8_t {
   kRouter,
   kComputer,
   kTracker,
-  kBoot,  // trackball boot / power (UI chrome, not RF)
+  kBoot,   // trackball boot / power (UI chrome, not RF)
+  kLight,  // smart light/bulb
+  kLock,   // smart lock
 };
 
 // Status-screen field icons (14×14, same cell as draw_dev_icon).

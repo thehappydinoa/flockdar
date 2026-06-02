@@ -48,6 +48,36 @@ static void enqueue_wifi(const char *method, const uint8_t mac[6], int rssi,
   stats_queue_send(d);
 }
 
+// Extract SSID from 802.11 Information Elements starting at ie_start.
+// Returns true and fills ssid_out (NUL-terminated, max ssid_sz-1 chars)
+// if a non-hidden SSID IE is found. Safe to call from IRAM context.
+static IRAM_ATTR bool parse_ssid_ie(const uint8_t *frame, int frame_len,
+                                     int ie_start, char *ssid_out,
+                                     size_t ssid_sz) {
+  if (ie_start + 2 > frame_len) return false;
+  const uint8_t *ie = frame + ie_start;
+  const int ie_len = frame_len - ie_start;
+  int off = 0;
+  while (off + 1 < ie_len) {
+    const uint8_t id = ie[off];
+    const uint8_t el = ie[off + 1];
+    if (off + 2 + el > ie_len) break;
+    if (id == 0) {
+      if (el == 0) return false;  // hidden / wildcard
+      const size_t n = (el < ssid_sz - 1) ? (size_t)el : ssid_sz - 1;
+      for (size_t i = 0; i < n; i++) {
+        const uint8_t c = ie[off + 2 + i];
+        if (c < 0x20 || c > 0x7e) return false;  // non-ASCII → skip
+      }
+      memcpy(ssid_out, &ie[off + 2], n);
+      ssid_out[n] = '\0';
+      return true;
+    }
+    off += 2 + el;
+  }
+  return false;
+}
+
 static void IRAM_ATTR promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   if (type != WIFI_PKT_MGMT) return;
   s_mgmt_frames++;
@@ -66,11 +96,20 @@ static void IRAM_ATTR promisc_cb(void *buf, wifi_promiscuous_pkt_type_t type) {
   const int rssi = pkt->rx_ctrl.rssi;
   const uint8_t ch = pkt->rx_ctrl.channel;
 
+  // Extract SSID from beacon (8) and probe response (5) frames.
+  // Both frame types have 12 bytes of fixed parameters after the 24-byte
+  // MAC header, so Information Elements start at offset 36.
+  char ssid[33] = {};
+  bool has_ssid = false;
+  if ((fsub == 8 || fsub == 5) && len >= 38) {
+    has_ssid = parse_ssid_ie(pl, len, 36, ssid, sizeof(ssid));
+  }
+
   // Skip multicast and locally-administered (randomized) WiFi MACs — no stable
   // OUI to label; AP/camera BSSIDs use universal addresses.
 #ifdef FD_ENABLE_TDECK_UI
   if ((addr2[0] & 0x03) == 0) {
-    rf_pending_note_wifi(addr2, rssi, ch);
+    rf_pending_note_wifi(addr2, rssi, ch, has_ssid ? ssid : nullptr);
   }
 #endif
 

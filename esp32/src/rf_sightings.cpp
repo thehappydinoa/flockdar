@@ -15,7 +15,7 @@ constexpr size_t kMaxDevices = 48;
 struct Entry {
   uint8_t mac[6];
   char kind[5];
-  char label[24];
+  char label[33];
   int rssi;
   uint8_t channel;
   uint32_t seen;
@@ -168,9 +168,10 @@ void rf_sightings_begin() {
   portEXIT_CRITICAL_ISR(&s_mux);
 }
 
-void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel) {
+void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel,
+                            const char *ssid) {
   if (!is_unicast(mac)) return;
-  note_device(mac, "wifi", "mgmt", rssi, channel);
+  note_device(mac, "wifi", ssid && ssid[0] ? ssid : "mgmt", rssi, channel);
 }
 
 void rf_sightings_note_ble(const uint8_t mac[6], const char *name, int rssi,

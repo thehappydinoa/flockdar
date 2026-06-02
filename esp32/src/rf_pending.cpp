@@ -41,12 +41,16 @@ static void enqueue_rec(const RfPendingRec &rec) {
   (void)xQueueSend(s_rf_queue, &rec, 0);
 }
 
-void rf_pending_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel) {
+void rf_pending_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel,
+                          const char *ssid) {
   RfPendingRec rec{};
   rec.kind = kWifi;
   memcpy(rec.mac, mac, 6);
   rec.rssi = rssi;
   rec.channel = channel;
+  if (ssid && ssid[0]) {
+    strncpy(rec.name, ssid, sizeof(rec.name) - 1);
+  }
   enqueue_rec(rec);
 }
 
@@ -71,7 +75,8 @@ void rf_pending_drain() {
   RfPendingRec rec;
   while (xQueueReceive(s_rf_queue, &rec, 0) == pdTRUE) {
     if (rec.kind == kWifi) {
-      rf_sightings_note_wifi(rec.mac, rec.rssi, rec.channel);
+      rf_sightings_note_wifi(rec.mac, rec.rssi, rec.channel,
+                             rec.name[0] ? rec.name : nullptr);
     } else {
       rf_sightings_note_ble(rec.mac, rec.name[0] ? rec.name : nullptr, rec.rssi,
                             rec.mfgrid, rec.has_mfgrid);
