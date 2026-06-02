@@ -1473,11 +1473,30 @@ void tdeck_ui_begin() {
   tft.drawString(ver, tft.width() / 2, 114, kFontLabel);
   tft.setTextDatum(TL_DATUM);
 
+  // Fade-in with a left-to-right scan beam sweeping across a 6 px band.
+  // A bright leading edge (kFlock) trails kAccentDim behind it — like radar.
+  static constexpr int kScanY = 130;
+  static constexpr int kScanH = 6;
+  static constexpr int kBeamW = 24;
   pinMode(TDECK_BL_PIN, OUTPUT);
   for (int i = 0; i <= 16; ++i) {
     tdeck_set_brightness((uint8_t)i);
+    const int w = tft.width();
+    const int beam_x = i * w / 16;
+    if (beam_x > 0)
+      tft.fillRect(0, kScanY, beam_x, kScanH, kAccentDim);
+    const int bw = min(kBeamW, w - beam_x);
+    if (bw > 0)
+      tft.fillRect(beam_x, kScanY, bw, kScanH, kFlock);
+    const int ahead = beam_x + kBeamW;
+    if (ahead < w)
+      tft.fillRect(ahead, kScanY, w - ahead, kScanH, kBg);
     delay(30);
   }
+  // Leave a dim full-width bar; tdeck_boot_step will replace it with the
+  // framed progress bar on the first call from main.cpp.
+  tft.fillRect(0, kScanY, tft.width(), kScanH, kAccentDim);
+
   s_ok = true;
 
   pinMode(TDECK_TRACKBALL_BTN, INPUT_PULLUP);
@@ -1500,6 +1519,31 @@ void tdeck_ui_begin() {
   s_last_input_ms = millis();
   s_last_draw = millis();
   s_dirty = true;
+}
+
+void tdeck_boot_step(const char *label, uint8_t pct) {
+  static constexpr int kBarX = 80;
+  static constexpr int kBarY = 130;
+  static constexpr int kBarW = 160;
+  static constexpr int kBarH = 6;
+  static constexpr int kLabelY = 146;
+
+  // Clear bar + label region
+  tft.fillRect(0, kBarY - 1, tft.width(), kBarH + 2 + 14, kBg);
+
+  // Bar outline
+  tft.drawRect(kBarX - 1, kBarY - 1, kBarW + 2, kBarH + 2, kAccentDim);
+
+  // Fill
+  const int fill = (int)pct * kBarW / 100;
+  if (fill > 0)
+    tft.fillRect(kBarX, kBarY, fill, kBarH, pct >= 100 ? kFlock : kAccent);
+
+  // Label
+  tft.setTextDatum(MC_DATUM);
+  tft.setTextColor(pct >= 100 ? kFlock : kTextMuted, kBg);
+  tft.drawString(label, tft.width() / 2, kLabelY, kFontLabel);
+  tft.setTextDatum(TL_DATUM);
 }
 
 void tdeck_ui_note(const Detection &d) {

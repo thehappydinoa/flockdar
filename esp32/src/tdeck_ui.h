@@ -8,6 +8,8 @@
 void tdeck_ui_begin();
 void tdeck_ui_note(const Detection &d);
 void tdeck_ui_loop();
+// Advance the boot progress bar. Call after each init step (pct 0-100).
+void tdeck_boot_step(const char *label, uint8_t pct);
 // Release TFT SPI so SD / other bus devices can transact.
 void tdeck_spi_release();
 

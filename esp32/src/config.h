@@ -26,7 +26,7 @@
 #endif
 // Bump when flashing to confirm the new build is running (shown on boot + status).
 #ifndef FD_FW_VERSION
-#define FD_FW_VERSION "0.3.8"
+#define FD_FW_VERSION "0.3.9"
 #endif
 
 // Periodic stats heartbeat interval (ms). Emits a stats JSON line so a host

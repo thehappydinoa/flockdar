@@ -50,19 +50,32 @@ void setup() {
 #endif
 #ifdef FD_ENABLE_SD
   sdlog_begin();
+#  ifdef FD_ENABLE_TDECK_UI
+  tdeck_boot_step("SD CARD", 20);
+#  endif
 #endif
 #ifdef FD_ENABLE_GPS
   gps_begin();
+#  ifdef FD_ENABLE_TDECK_UI
+  tdeck_boot_step("GPS", 40);
+#  endif
 #endif
 
 #ifdef FD_ENABLE_TDECK_UI
   rf_sightings_begin();
   rf_pending_begin();
+  tdeck_boot_step("RF INIT", 60);
 #endif
 
   if (g_det_queue) {
     wifi_scanner_begin();
+#ifdef FD_ENABLE_TDECK_UI
+    tdeck_boot_step("WIFI", 80);
+#endif
     ble_scanner_begin();
+#ifdef FD_ENABLE_TDECK_UI
+    tdeck_boot_step("BLE", 95);
+#endif
   }
 
   {
@@ -72,6 +85,10 @@ void setup() {
   }
 #ifdef FD_ENABLE_SD
   serial_out_info(sdlog_ok() ? "sd log open" : "sd card not found");
+#endif
+#ifdef FD_ENABLE_TDECK_UI
+  tdeck_boot_step("READY", 100);
+  delay(500);
 #endif
 }
 
