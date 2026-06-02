@@ -342,9 +342,12 @@ VENDOR_OUIS: dict[str, str] = {
     # --- Arcadyan ---
     "04:09:86": "Arcadyan",
     "18:a5:ff": "Arcadyan",
+    "3c:bd:c5": "Arcadyan",
+    "74:90:bc": "Arcadyan",
     "84:90:0a": "Arcadyan",
     "8c:19:b5": "Arcadyan",
     "a8:a2:37": "Arcadyan",
+    "b8:f8:53": "Arcadyan",
     # --- Arris ---
     "00:00:ca": "Arris",
     "00:15:cf": "Arris",
@@ -398,6 +401,7 @@ VENDOR_OUIS: dict[str, str] = {
     "00:0b:be": "Cisco",
     "00:0c:41": "Cisco",
     "00:0d:65": "Cisco",
+    "00:0d:67": "Cisco",
     "00:0e:38": "Cisco",
     "00:10:07": "Cisco",
     "00:11:20": "Cisco",
@@ -485,6 +489,8 @@ VENDOR_OUIS: dict[str, str] = {
     "38:07:16": "Freebox",
     "8c:97:ea": "Freebox",
     "dc:00:b0": "Freebox",
+    # --- Furbo ---
+    "00:2d:b3": "Furbo",
     # --- GeoVision ---
     "00:13:e2": "GeoVision",
     # --- Google ---
@@ -500,6 +506,11 @@ VENDOR_OUIS: dict[str, str] = {
     "c8:2a:dd": "Google",
     "da:a1:19": "Google",
     "f4:f5:e8": "Google",
+    # --- Govee ---
+    "60:74:f4": "Govee",
+    "98:17:3c": "Govee",
+    "d0:c9:07": "Govee",
+    "d4:ad:fc": "Govee",
     # --- HP ---
     "10:e7:c6": "HP",
     "40:b0:34": "HP",
@@ -647,6 +658,7 @@ VENDOR_OUIS: dict[str, str] = {
     "60:73:5c": "Ruckus",
     "60:d0:2c": "Ruckus",
     "84:95:37": "Ruckus",
+    "b4:79:c8": "Ruckus",
     "d4:bd:4f": "Ruckus",
     # --- Sagemcom ---
     "04:e3:1a": "Sagemcom",
@@ -675,6 +687,11 @@ VENDOR_OUIS: dict[str, str] = {
     "c0:bd:d1": "Samsung",
     "d0:22:be": "Samsung",
     "d0:d0:03": "Samsung",
+    "10:2b:41": "Samsung",
+    "24:fc:e5": "Samsung",
+    "28:e6:a9": "Samsung",
+    "b8:b4:09": "Samsung",
+    "c8:a6:ef": "Samsung",
     "e4:7c:f9": "Samsung",
     # --- Schlage ---
     "00:1a:75": "Schlage",
@@ -698,6 +715,8 @@ VENDOR_OUIS: dict[str, str] = {
     "00:1c:27": "Sunell",
     # --- Synology ---
     "00:11:32": "Synology",
+    # --- Telink ---
+    "a4:c1:38": "Telink",
     # --- TP-Link ---
     "00:31:92": "TP-Link",
     "14:d8:64": "TP-Link",
@@ -740,16 +759,29 @@ VENDOR_OUIS: dict[str, str] = {
     # --- Uniview ---
     "24:0f:9b": "Uniview",
     "48:ea:63": "Uniview",
+    # --- Vantiva ---
+    "5c:76:95": "Vantiva",
+    "7c:9a:54": "Vantiva",
+    "d4:b9:2f": "Vantiva",
+    "dc:eb:69": "Vantiva",
     # --- Verizon ---
     "00:19:15": "Verizon",
     "00:20:e0": "Verizon",
     "00:24:7b": "Verizon",
+    "10:e8:a7": "Verizon",
     # --- Vivotek ---
     "00:02:d1": "Vivotek",
+    # --- Wistron ---
+    "44:1c:12": "Wistron",
+    "58:96:71": "Wistron",
+    "78:67:0e": "Wistron",
+    "ac:91:9b": "Wistron",
     # --- Wyze ---
     "2c:aa:8e": "Wyze",
     "44:00:49": "Wyze",
     "d8:43:ae": "Wyze",
+    # --- Yamaha ---
+    "00:19:01": "Yamaha",
     # --- ZTE ---
     "90:c7:10": "ZTE",
     "98:ee:8c": "ZTE",

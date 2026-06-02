@@ -35,12 +35,12 @@ bool vendor_is_router(const char *vendor) {
   static const char *kRouters[] = {
       "eero",     "Meraki",   "Cisco",    "Linksys",  "Netgear",  "TP-Link",
       "Ubiquiti", "ASUS",     "Arris",    "Motorola", "Verizon",  "Technicolor",
-      "D-Link",   "Belkin",   "Ruckus",   "Aruba",    "Fortinet", "Huawei",
-      "Sagemcom", "ZTE",      "Zyxel",    "Actiontec","Arcadyan", "AVM",
-      "Askey",    "Hitron",   "Sercomm",  "2Wire",    "Compal",   "Pegatron",
-      "Buffalo",  "Extreme",  "MikroTik", "Sky",      "Freebox",  "Tenda",
-      "Aerohive", "Gemtek",   "NEC",      "Thomson",  "Mitsumi",  "HPE",
-      "HP",       "Wistron",  nullptr,
+      "Vantiva",  "D-Link",   "Belkin",   "Ruckus",   "Aruba",    "Fortinet",
+      "Huawei",   "Sagemcom", "ZTE",      "Zyxel",    "Actiontec","Arcadyan",
+      "AVM",      "Askey",    "Hitron",   "Sercomm",  "2Wire",    "Compal",
+      "Pegatron", "Buffalo",  "Extreme",  "MikroTik", "Sky",      "Freebox",
+      "Tenda",    "Aerohive", "Gemtek",   "NEC",      "Thomson",  "Mitsumi",
+      "HPE",      "HP",       "Wistron",  nullptr,
   };
   for (const char **p = kRouters; *p; p++) {
     if (vendor_is(vendor, *p)) return true;
@@ -66,9 +66,10 @@ bool label_is_phone(const char *label) {
 bool vendor_is_camera(const char *vendor) {
   if (!vendor) return false;
   static const char *kCams[] = {
-      "Hikvision", "Dahua",  "Reolink", "Wyze",   "Ring",     "Axis",
-      "Avigilon",  "FLIR",   "Hanwha",  "GeoVision", "March", "Mobotix",
-      "Sunell",    "Bosch",  "Pelco",   "Vivotek", "Uniview",  nullptr,
+      "Hikvision", "Dahua",  "Reolink", "Wyze",   "Ring",     "Furbo",
+      "Axis",      "Avigilon","FLIR",   "Hanwha",  "GeoVision","March",
+      "Mobotix",   "Sunell",  "Bosch",  "Pelco",   "Vivotek",  "Uniview",
+      nullptr,
   };
   for (const char **p = kCams; *p; p++) {
     if (vendor_is(vendor, *p)) return true;
@@ -106,6 +107,10 @@ const char *dev_icon_label(DevIcon icon) {
 DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
   const bool ble = strcmp(d.kind, "ble") == 0;
   const char *label = d.label;
+  // Locally-administered MAC bit: set on all randomized MACs (phones, laptops,
+  // tablets with MAC privacy). OUI lookup is meaningless for these — return
+  // kPhone as the best approximation rather than kUnknown.
+  const bool laa = (d.mac_raw[0] & 0x02) != 0;
 
   if (ble) {
     if (ci_contains(label, "watch") || ci_contains(label, "band") ||
@@ -114,22 +119,45 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     }
     if (ci_contains(label, "airpod") || ci_contains(label, "buds") ||
         ci_contains(label, "headphone") || ci_contains(label, "beats") ||
-        ci_contains(label, "speaker") || ci_contains(label, "sonos")) {
+        ci_contains(label, "speaker") || ci_contains(label, "sonos") ||
+        ci_contains(label, "jbl") || ci_contains(label, "bose") ||
+        ci_contains(label, "le_wh") || ci_contains(label, "wh-") ||
+        ci_contains(label, "sony") || ci_contains(label, "jabra") ||
+        ci_contains(label, "skullcandy") || ci_contains(label, "crusher") ||
+        ci_contains(label, "halberd") || ci_contains(label, "soundcore") ||
+        ci_contains(label, "jlab") || ci_contains(label, "momentum") ||
+        ci_contains(label, "marshall") || ci_contains(label, "sennheiser") ||
+        ci_contains(label, "harman")) {
       return DevIcon::kSpeaker;
     }
     if (ci_contains(label, "tv") || ci_contains(label, "roku") ||
-        ci_contains(label, "fire tv")) {
+        ci_contains(label, "fire tv") || ci_contains(label, "qled") ||
+        ci_contains(label, "oled") || ci_contains(label, "the frame") ||
+        ci_contains(label, "crystal uhd") || ci_contains(label, "vizio") ||
+        ci_contains(label, "webos") || ci_contains(label, "tcl")) {
       return DevIcon::kTv;
     }
     if (ci_contains(label, "tile") || ci_contains(label, "tracker") ||
-        ci_contains(label, "tag")) {
+        ci_contains(label, "tag") || ci_contains(label, "chipolo") ||
+        ci_contains(label, "fixd")) {
       return DevIcon::kTracker;
     }
-    if (ci_contains(label, "camera") || ci_contains(label, "cam")) {
+    if (ci_contains(label, "quest") || ci_contains(label, "surface")) {
+      return DevIcon::kComputer;
+    }
+    if (ci_contains(label, "camera") || ci_contains(label, "cam") ||
+        ci_contains(label, "furbo") || ci_contains(label, "wyze")) {
       return DevIcon::kCamera;
     }
     if (d.has_mfgrid && d.mfgrid == 737) return DevIcon::kTracker;
-    if (vendor_is(vendor, "Sonos") || vendor_is(vendor, "Bose")) {
+    // Apple mfgrid 76: by the time we reach here the label hasn't matched
+    // watch/speaker/etc., so it's almost certainly a phone, iPad, or Mac.
+    if (d.has_mfgrid && d.mfgrid == 76) return DevIcon::kPhone;
+    if (d.has_mfgrid && d.mfgrid == 6) return DevIcon::kComputer;   // Microsoft
+    if (d.has_mfgrid && d.mfgrid == 348) return DevIcon::kComputer; // Meta/Quest
+    if (vendor_is(vendor, "Sonos") || vendor_is(vendor, "Bose") ||
+        vendor_is(vendor, "Yamaha") || vendor_is(vendor, "Beats") ||
+        vendor_is(vendor, "Plantronics")) {
       return DevIcon::kSpeaker;
     }
     if (vendor_is(vendor, "Garmin") || vendor_is(vendor, "Fitbit")) {
@@ -138,17 +166,23 @@ DevIcon classify_rf_device(const RfDevice &d, const char *vendor) {
     if (label_is_phone(label)) {
       return DevIcon::kPhone;
     }
+    if (laa) return DevIcon::kPhone;
     return DevIcon::kUnknown;
   }
+
+  // WiFi: locally-administered MAC means MAC randomization → phone/laptop.
+  // Check before vendor lookup since OUI is meaningless for random MACs.
+  if (laa) return DevIcon::kPhone;
 
   if (vendor_is_camera(vendor)) return DevIcon::kCamera;
   if (vendor_is(vendor, "Roku")) return DevIcon::kTv;
   if (vendor_is(vendor, "Sonos") || vendor_is(vendor, "Bose")) {
     return DevIcon::kSpeaker;
   }
+  if (vendor_is(vendor, "Apple")) return DevIcon::kPhone;
   if (vendor_is(vendor, "Synology") || vendor_is(vendor, "Intel") ||
       vendor_is(vendor, "Microsoft") || vendor_is(vendor, "HP") ||
-      vendor_is(vendor, "HPE")) {
+      vendor_is(vendor, "HPE") || vendor_is(vendor, "Meta")) {
     return DevIcon::kComputer;
   }
   if (vendor_is_router(vendor)) return DevIcon::kRouter;
