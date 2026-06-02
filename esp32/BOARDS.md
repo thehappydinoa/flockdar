@@ -39,7 +39,29 @@ Nearby carousel) plus HMAC-signed NDJSON on USB and optional SD logs.
 - SD files: `/flock-0001.ndjson`, … (FAT32 card, 32 GB or less recommended)
 - USB serial at **115200** baud for `flockdar --serial` or `flockdar-ingest`
 - Serial command `stats` for queue/heap diagnostics; long-run validation: [SOAK.md](SOAK.md)
-- Status screen scrolls all fields (including firmware version). Backlight turns off after **2 minutes** idle (`FD_DISPLAY_SLEEP_MS` in `config.h`); any keyboard key or trackball movement wakes it. New Flock hits also wake the display.
+- Status screen scrolls all fields (including firmware version). Trackball **U/D** scrolls immediately; **L/R** changes page after a brief settle unless you also scrolled vertically (so diagonal rolls stay on one page). Auto backlight sleep is **off** by default (`FD_DISPLAY_SLEEP_MS 0` in `config.h`) until sleep/wake stability is fixed; set e.g. `120000` to re-enable 2-minute idle dim.
+
+### Screenshots (USB)
+
+Example capture (Status screen): [`docs/screenshots/status.png`](../docs/screenshots/status.png).
+
+Capture what is on the TFT (useful for docs and UI reviews):
+
+```bash
+# Close PlatformIO monitor / flockdar --serial first.
+# Recommended: script listens, you navigate, then press p on the T-Deck keyboard.
+uv run python esp32/screenshot.py COM4 -o screen.bmp
+# If USB open does not reboot the board (common on Windows):
+#   uv run python esp32/screenshot.py COM4 --already-running -o screen.bmp
+# Wait for "Listening…" on the PC before pressing p on the keyboard.
+# Or type screenshot in an already-open serial session (no new USB open).
+# Host-triggered (captures right after boot — usually not what you want):
+#   uv run python esp32/screenshot.py COM4 --host -o screen.bmp
+# PNG needs Pillow: uv pip install pillow
+uv run python esp32/screenshot.py COM4 -o screen.png
+```
+
+You can also type `screenshot` in a serial monitor if you prefer to handle the binary stream yourself. Navigate to the screen you want on the device first, then capture. Capture pauses WiFi/BLE/SD SPI for ~2–5 s while the TFT is read row-by-row; older firmware that blocked the main loop on a shared SPI bus could watchdog-reboot during capture — reflash if you saw a crash.
 
 ### GPS (T-Deck Plus only)
 

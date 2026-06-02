@@ -220,7 +220,7 @@ __marimo__/
 .streamlit/secrets.toml
 
 # Claude Code local settings — IDE-specific, not project config
-.claude/
+.claude/settings.local.json
 
 # WiGLE data exports — contain personal location data, never commit
 *.sqlite
@@ -228,11 +228,8 @@ __marimo__/
 *.db
 *.csv.gz
 *.json*
-*.ndjson
 *.csv
 
-# Cursor debug-mode / upload diagnostic logs
-debug-upload-diag.log
-WigleWifi_*
-backup-*.sqlite
-*.txt
+# ESP32 firmware
+*.ndjson
+*.bmp

@@ -11,6 +11,9 @@
 
 #include "freertos/FreeRTOS.h"
 
+#include "esp_task_wdt.h"
+#include "esp_timer.h"
+
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
 #include "display.h"
 #endif
@@ -87,8 +90,41 @@ static void serial_usb_write_line(const char *line) {
   portEXIT_CRITICAL(&s_serial_mux);
 }
 
+// Timeout for the USB FIFO drain loop: if the host is disconnected the CDC
+// TX buffer fills and availableForWrite() returns 0 forever.  After this many
+// microseconds we give up rather than hanging the task indefinitely.
+static constexpr int64_t kUsbWriteTimeoutUs = 2000000LL;  // 2 seconds
+
 void serial_out_usb_write(const uint8_t *data, size_t len) {
-  serial_usb_write(data, len);
+  size_t off = 0;
+  const int64_t deadline = esp_timer_get_time() + kUsbWriteTimeoutUs;
+  while (off < len) {
+    if (esp_timer_get_time() > deadline) {
+      // Host appears disconnected; abandon the write to avoid hanging the task.
+      break;
+    }
+    int space = Serial.availableForWrite();
+    if (space <= 0) {
+      yield();
+      esp_task_wdt_reset();
+      continue;
+    }
+    size_t n = len - off;
+    if ((size_t)space < n) {
+      n = (size_t)space;
+    }
+    if (n > 128) {
+      n = 128;
+    }
+    portENTER_CRITICAL(&s_serial_mux);
+    Serial.write(data + off, n);
+    portEXIT_CRITICAL(&s_serial_mux);
+    off += n;
+    if (off < len) {
+      yield();
+      esp_task_wdt_reset();
+    }
+  }
 }
 
 // Single output path for every JSON line: USB serial and (if built) the SD

@@ -9,6 +9,10 @@ void wifi_scanner_begin();
 // the main loop.
 void wifi_scanner_loop();
 
+// Pause promiscuous RX (shared SPI / long captures).
+void wifi_scanner_suspend();
+void wifi_scanner_resume();
+
 // Current channel, for the OLED.
 uint8_t wifi_scanner_channel();
 // Promiscuous management frames seen (all devices, not just Flock).

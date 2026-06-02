@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "freertos/FreeRTOS.h"
 
 namespace {
 
@@ -17,6 +18,7 @@ struct Slot {
 };
 
 Slot s_slots[kSlots];
+portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
 int find_slot(const uint8_t mac[6], const char *method) {
   for (size_t i = 0; i < kSlots; i++) {
@@ -55,12 +57,18 @@ bool flock_dedup_allow(const uint8_t mac[6], const char *method) {
     return true;
   }
   const uint32_t now = millis();
+  // portENTER_CRITICAL_ISR is safe from both task and ISR context; the WiFi
+  // promiscuous callback calls flock_dedup_allow() from an ISR-level context,
+  // so portENTER_CRITICAL (which asserts !ISR) would panic.
+  portENTER_CRITICAL_ISR(&s_mux);
   const int hit = find_slot(mac, method);
   if (hit >= 0) {
     if (now - s_slots[hit].last_ms < (uint32_t)FD_FLOCK_DEDUP_MS) {
+      portEXIT_CRITICAL_ISR(&s_mux);
       return false;
     }
     s_slots[hit].last_ms = now;
+    portEXIT_CRITICAL_ISR(&s_mux);
     return true;
   }
   const int idx = alloc_slot();
@@ -69,5 +77,6 @@ bool flock_dedup_allow(const uint8_t mac[6], const char *method) {
   strncpy(s_slots[idx].method, method, sizeof(s_slots[idx].method) - 1);
   s_slots[idx].method[sizeof(s_slots[idx].method) - 1] = '\0';
   s_slots[idx].last_ms = now;
+  portEXIT_CRITICAL_ISR(&s_mux);
   return true;
 }

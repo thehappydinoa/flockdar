@@ -16,6 +16,7 @@
 namespace {
 
 static volatile uint32_t s_ble_adverts = 0;
+static bool s_suspended = false;
 
 // Parse BLE AD structures without std::string / heap churn in the scan callback.
 static bool ad_walk(const uint8_t *payload, size_t len,
@@ -121,6 +122,23 @@ void ble_scanner_begin() {
   scan->setWindow(99);
   scan->setMaxResults(0);
   scan->start(0, nullptr, false);
+  s_suspended = false;
+}
+
+void ble_scanner_suspend() {
+  if (s_suspended) {
+    return;
+  }
+  NimBLEDevice::getScan()->stop();
+  s_suspended = true;
+}
+
+void ble_scanner_resume() {
+  if (!s_suspended) {
+    return;
+  }
+  NimBLEDevice::getScan()->start(0, nullptr, false);
+  s_suspended = false;
 }
 
 uint32_t ble_scanner_adverts() { return s_ble_adverts; }

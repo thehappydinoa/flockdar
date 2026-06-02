@@ -39,5 +39,7 @@ bool sdlog_dump(const char *path);
 bool sdlog_dump_poll();
 void sdlog_dump_abort();
 bool sdlog_host_busy();
+// Block SD SPI access (screenshot shares the bus with TFT on T-Deck).
+void sdlog_bus_hold(bool hold);
 
 #endif

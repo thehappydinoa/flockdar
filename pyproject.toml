@@ -36,6 +36,12 @@ flockdar-ingest = "flockdar.serial_import:main"
 "Source" = "https://github.com/thehappydinoa/flockdar"
 "Issue Tracker" = "https://github.com/thehappydinoa/flockdar/issues"
 
+[project.optional-dependencies]
+esp32 = [
+    "pillow>=12.2.0",
+    "platformio>=6.1.19",
+]
+
 [dependency-groups]
 dev = [
     "pytest>=9.0.3",
@@ -59,6 +65,21 @@ testpaths = ["tests"]
 [tool.ruff]
 line-length = 100
 target-version = "py311"
+exclude = [
+    ".direnv",
+    ".eggs",
+    ".git",
+    ".mypy_cache",
+    ".pyenv",
+    ".pytest_cache",
+    ".pytype",
+    ".ruff_cache",
+    ".venv",
+    ".vscode",
+    "__pypackages__",
+    "venv",
+    "vendor",
+]
 
 [tool.ruff.lint]
 select = [
@@ -74,6 +95,9 @@ select = [
 ignore = [
     "E501", # line too long (handled by formatter)
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"esp32/gen_oui_header.py" = ["F541"]
 
 [tool.ruff.format]
 quote-style = "double"

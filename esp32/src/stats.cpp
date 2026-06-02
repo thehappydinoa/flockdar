@@ -45,7 +45,32 @@ bool stats_queue_send(const Detection &d) {
 uint32_t stats_queue_drops() { return s_queue_drops; }
 uint32_t stats_emits() { return s_emits; }
 uint32_t stats_free_heap() { return ESP.getFreeHeap(); }
-uint32_t stats_min_heap() { return ESP.getMinFreeHeap(); }
+
+uint32_t stats_heap_total() { return ESP.getHeapSize(); }
+
+uint32_t stats_heap_used() {
+  const uint32_t total = ESP.getHeapSize();
+  const uint32_t free = ESP.getFreeHeap();
+  return total > free ? total - free : 0;
+}
+
+unsigned stats_heap_used_percent() {
+  const uint32_t total = ESP.getHeapSize();
+  if (total == 0) {
+    return 0;
+  }
+  return (unsigned)((stats_heap_used() * 100ULL) / total);
+}
+
+void stats_format_ram(char *out, size_t outsz) {
+  if (!out || outsz == 0) {
+    return;
+  }
+  const uint32_t used = stats_heap_used();
+  const unsigned pct = stats_heap_used_percent();
+  const float mb = used / (1024.0f * 1024.0f);
+  snprintf(out, outsz, "%.2f MB (%u%%)", mb, pct);
+}
 
 size_t stats_format_json(char *buf, size_t bufsz) {
   if (!buf || bufsz == 0) {
@@ -56,12 +81,16 @@ size_t stats_format_json(char *buf, size_t bufsz) {
 #else
   const uint32_t rf_events = 0;
 #endif
+  char ram[32];
+  stats_format_ram(ram, sizeof(ram));
   return (size_t)snprintf(
       buf, bufsz,
       "{\"queue_drops\":%lu,\"emits\":%lu,\"wifi_mgmt\":%lu,\"ble_adverts\":%lu,"
-      "\"rf_events\":%lu,\"free_heap\":%lu,\"min_heap\":%lu}",
+      "\"rf_events\":%lu,\"heap_total\":%lu,\"heap_used\":%lu,\"heap_used_pct\":%u,"
+      "\"ram\":\"%s\"}",
       (unsigned long)s_queue_drops, (unsigned long)s_emits,
       (unsigned long)wifi_scanner_mgmt_frames(),
       (unsigned long)ble_scanner_adverts(), (unsigned long)rf_events,
-      (unsigned long)ESP.getFreeHeap(), (unsigned long)ESP.getMinFreeHeap());
+      (unsigned long)stats_heap_total(), (unsigned long)stats_heap_used(),
+      stats_heap_used_percent(), ram);
 }

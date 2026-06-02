@@ -11,6 +11,11 @@ void tdeck_ui_loop();
 // Release TFT SPI so SD / other bus devices can transact.
 void tdeck_spi_release();
 
+// Capture TFT over USB serial (RGB565). Non-blocking: begin then poll from loop.
+bool tdeck_screenshot_begin();
+void tdeck_screenshot_poll();
+bool tdeck_screenshot_busy();
+
 #ifdef FD_ENABLE_SD
 // Mount microSD on the shared SPI bus (LilyGO setupSD pattern).
 // hard_reset: SPI.end/begin + tft re-init (use on manual retry).

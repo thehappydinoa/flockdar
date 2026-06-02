@@ -67,7 +67,7 @@ int find_oldest_slot() {
 void note_device(const uint8_t mac[6], const char *kind, const char *label,
                  int rssi, uint8_t channel, uint16_t mfgrid = 0,
                  bool has_mfgrid = false) {
-  portENTER_CRITICAL(&s_mux);
+  portENTER_CRITICAL_ISR(&s_mux);
   s_events++;
   int idx = find_mac(mac);
   if (idx < 0) {
@@ -117,7 +117,7 @@ void note_device(const uint8_t mac[6], const char *kind, const char *label,
   s_devs[idx].has_utc = false;
 #endif
   s_sort_dirty = true;
-  portEXIT_CRITICAL(&s_mux);
+  portEXIT_CRITICAL_ISR(&s_mux);
 }
 
 static int cmp_last_ms(const void *a, const void *b) {
@@ -129,27 +129,43 @@ static int cmp_last_ms(const void *a, const void *b) {
 }
 
 void refresh_sorted() {
-  if (!s_sort_dirty) return;
-  portENTER_CRITICAL(&s_mux);
-  memcpy(s_sorted, s_devs, s_count * sizeof(Entry));
+  // s_sort_dirty is written from ISR context (note_device) so read it under
+  // the spinlock to avoid a torn read on multi-core.
+  portENTER_CRITICAL_ISR(&s_mux);
+  const bool dirty = s_sort_dirty;
+  portEXIT_CRITICAL_ISR(&s_mux);
+  if (!dirty) return;
+
+  // Snapshot count + data while holding the lock (must be brief — we're
+  // callable from a task context while the ISR may fire on the other core).
+  // Use a local buffer so qsort runs entirely outside the spinlock.
+  Entry tmp[kMaxDevices];
+  portENTER_CRITICAL_ISR(&s_mux);
   const size_t n = s_count;
-  portEXIT_CRITICAL(&s_mux);
+  if (n > 0) memcpy(tmp, s_devs, n * sizeof(Entry));
+  s_sort_dirty = false;  // clear under lock so a concurrent ISR can re-set it
+  portEXIT_CRITICAL_ISR(&s_mux);
+
   if (n > 1) {
-    qsort(s_sorted, n, sizeof(Entry), cmp_last_ms);
+    qsort(tmp, n, sizeof(Entry), cmp_last_ms);
   }
-  s_sort_dirty = false;
+
+  // Write sorted snapshot back under the lock.
+  portENTER_CRITICAL_ISR(&s_mux);
+  memcpy(s_sorted, tmp, n * sizeof(Entry));
+  portEXIT_CRITICAL_ISR(&s_mux);
 }
 
 }  // namespace
 
 void rf_sightings_begin() {
-  portENTER_CRITICAL(&s_mux);
+  portENTER_CRITICAL_ISR(&s_mux);
   memset(s_devs, 0, sizeof(s_devs));
   memset(s_sorted, 0, sizeof(s_sorted));
   s_count = 0;
   s_events = 0;
   s_sort_dirty = true;
-  portEXIT_CRITICAL(&s_mux);
+  portEXIT_CRITICAL_ISR(&s_mux);
 }
 
 void rf_sightings_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel) {
@@ -164,26 +180,26 @@ void rf_sightings_note_ble(const uint8_t mac[6], const char *name, int rssi,
 }
 
 size_t rf_sightings_count() {
-  portENTER_CRITICAL(&s_mux);
+  portENTER_CRITICAL_ISR(&s_mux);
   size_t n = s_count;
-  portEXIT_CRITICAL(&s_mux);
+  portEXIT_CRITICAL_ISR(&s_mux);
   return n;
 }
 
 uint32_t rf_sightings_events() {
-  portENTER_CRITICAL(&s_mux);
+  portENTER_CRITICAL_ISR(&s_mux);
   uint32_t n = s_events;
-  portEXIT_CRITICAL(&s_mux);
+  portEXIT_CRITICAL_ISR(&s_mux);
   return n;
 }
 
 bool rf_sightings_get(size_t index, RfDevice *out) {
   if (!out) return false;
   refresh_sorted();
-  portENTER_CRITICAL(&s_mux);
+  portENTER_CRITICAL_ISR(&s_mux);
   const size_t n = s_count;
   if (index >= n) {
-    portEXIT_CRITICAL(&s_mux);
+    portEXIT_CRITICAL_ISR(&s_mux);
     return false;
   }
   const Entry &e = s_sorted[index];
@@ -207,6 +223,6 @@ bool rf_sightings_get(size_t index, RfDevice *out) {
   out->utc_second = e.utc_second;
   out->mfgrid = e.mfgrid;
   out->has_mfgrid = e.has_mfgrid;
-  portEXIT_CRITICAL(&s_mux);
+  portEXIT_CRITICAL_ISR(&s_mux);
   return true;
 }

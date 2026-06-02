@@ -18,6 +18,7 @@
 #ifdef FD_ENABLE_TDECK_UI
 #include "rf_pending.h"
 #include "rf_sightings.h"
+#include "tdeck_ui.h"
 #endif
 
 #ifdef FD_ENABLE_GPS
@@ -75,6 +76,13 @@ void setup() {
 }
 
 void loop() {
+#ifdef FD_ENABLE_TDECK_UI
+  if (tdeck_screenshot_busy()) {
+    tdeck_screenshot_poll();
+    serial_cmd_loop();
+    return;
+  }
+#endif
 #ifdef FD_ENABLE_SD
   // SD dump/list owns the CPU + serial port — skip scanners so lines don't
   // interleave with the replay stream and throttle throughput.
@@ -109,7 +117,10 @@ void loop() {
   gps_loop();
 #endif
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
-  display_loop();
+#  ifdef FD_ENABLE_TDECK_UI
+  if (!tdeck_screenshot_busy())
+#  endif
+    display_loop();
 #endif
 #ifdef FD_ENABLE_SD
   sdlog_dump_poll();

@@ -6,11 +6,10 @@ Manual validation after firmware hardening changes. Flash the `t-deck` env and c
 
 1. `pio run -e t-deck -t upload && pio device monitor -b 115200`
 2. Type `stats` and record:
-   - `free_heap` — typical 150–250 KB with UI+BLE+WiFi (varies by build)
-   - `min_heap` — should equal or be close to `free_heap` at boot
+   - `ram` — e.g. `"0.18 MB (68%)"` heap used (varies by build)
    - `queue_drops` — **must be 0**
 
-**Pass:** `queue_drops == 0`, `min_heap` within 32 KB of `free_heap`.
+**Pass:** `queue_drops == 0`, `heap_used_pct` typically 50–80% at boot.
 
 ## 2. RF-heavy environment (30 min)
 
@@ -18,9 +17,9 @@ Walk or park in dense 2.4 GHz WiFi (apartment, downtown).
 
 - On-device **Status** screen: `WiFi frames` and `BLE adverts` climb steadily; **Channel** cycles 1 → 6 → 11.
 - Serial `stats`: `queue_drops` stays **≤ 5** for the whole session (brief spikes OK; sustained climb is fail).
-- `min_heap` must not fall more than **16 KB** below boot baseline.
+- `heap_used_pct` should stay within ~10 points of boot unless many new features load.
 
-**Fail:** `queue_drops` increases by >20 in 30 min, or `min_heap` drops >32 KB.
+**Fail:** `queue_drops` increases by >20 in 30 min, or `heap_used_pct` climbs steadily (>15 points in 30 min).
 
 ## 3. Flock hit burst
 
@@ -36,18 +35,18 @@ Pass a known Flock camera (or replay `flock-*.ndjson` on a second device).
 
 With a log of **3000+ lines** on the card:
 
-1. Note `min_heap` via `stats`.
+1. Note `ram` / `heap_used_pct` via `stats`.
 2. Run `sd dump` (or UI equivalent).
 3. `stats` again after dump completes.
 
-**Pass:** `min_heap` after dump within **4 KB** of pre-dump value (no sustained heap erosion from per-line alloc).
+**Pass:** `heap_used_pct` after dump within **5 points** of pre-dump value.
 
 ## 5. Long wardrive (8+ hours)
 
 SD logging + GPS + UI enabled; device powered from battery or USB.
 
 - Sample `stats` every 2 hours.
-- **Pass:** `min_heap` plateaus (drift **< 10 KB/hour** after first hour). If erosion exceeds 10 KB/hour, capture serial log and file an issue (likely NimBLE/TFT library heap).
+- **Pass:** `heap_used_pct` plateaus (drift **< 5 points/hour** after first hour). If it keeps climbing, capture serial log and file an issue (likely NimBLE/TFT library heap).
 - **Pass:** `queue_drops` total **< 0.1%** of `emits` (e.g. <10 drops per 10k detections).
 
 ## 6. GPS / Nearby RF stability
@@ -61,6 +60,6 @@ Acquire GPS fix; open **Nearby RF** list.
 
 | Command | Purpose |
 |---------|---------|
-| `stats` | JSON counters: `queue_drops`, `emits`, `wifi_mgmt`, `ble_adverts`, `rf_events`, `free_heap`, `min_heap` |
+| `stats` | JSON counters: `queue_drops`, `emits`, `wifi_mgmt`, `ble_adverts`, `rf_events`, `heap_used_pct`, `ram` |
 | `sd list` / `sd dump` | SD log management |
 | `tz -300` | US Eastern local time offset (minutes) |

@@ -24,6 +24,7 @@ static volatile uint8_t s_channel = 1;
 static size_t s_hop_idx = 0;
 static uint32_t s_last_hop = 0;
 static volatile uint32_t s_mgmt_frames = 0;
+static bool s_suspended = false;
 
 // 802.11 management frame subtypes we care about.
 static const uint8_t SUBTYPE_PROBE_REQ = 0x04;
@@ -119,7 +120,26 @@ void wifi_scanner_begin() {
 #endif
 }
 
+void wifi_scanner_suspend() {
+  if (s_suspended) {
+    return;
+  }
+  esp_wifi_set_promiscuous(false);
+  s_suspended = true;
+}
+
+void wifi_scanner_resume() {
+  if (!s_suspended) {
+    return;
+  }
+  esp_wifi_set_promiscuous(true);
+  s_suspended = false;
+}
+
 void wifi_scanner_loop() {
+  if (s_suspended) {
+    return;
+  }
 #ifndef FD_FIXED_CHANNEL
   uint32_t now = millis();
   if (now - s_last_hop >= FD_CHANNEL_DWELL_MS) {

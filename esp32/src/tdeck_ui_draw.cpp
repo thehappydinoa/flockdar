@@ -32,7 +32,7 @@ const char *page_tab_label(int page_idx) {
 }  // namespace
 
 TdeckChrome::TdeckChrome(TFT_eSPI &tft)
-    : tft_(tft),
+    : tft_(&tft),
       title_{0},
       page_idx_(-1),
       bat_mv_(0),
@@ -77,66 +77,65 @@ void TdeckChrome::invalidate_footer() {
 
 void TdeckChrome::paint_header_background(bool flock_alert) {
   const uint16_t bar_bg = flock_alert ? kAccentDim : kSurface;
-  tft_.fillRect(0, 0, tft_.width(), kHdrH, bar_bg);
+  tft_->fillRect(0, 0, tft_->width(), kHdrH, bar_bg);
   if (flock_alert) {
-    tft_.fillRect(0, 0, kAccentW, kHdrH, kFlock);
-    tft_.fillRect(tft_.width() - kAccentW, 0, kAccentW, kHdrH, kFlock);
-    tft_.drawFastHLine(0, kHdrH - 2, tft_.width(), kFlock);
+    tft_->fillRect(0, 0, kAccentW, kHdrH, kFlock);
+    tft_->fillRect(tft_->width() - kAccentW, 0, kAccentW, kHdrH, kFlock);
+    tft_->drawFastHLine(0, kHdrH - 2, tft_->width(), kFlock);
   }
-  tft_.drawFastHLine(0, kHdrH - 1, tft_.width(), kDivider);
+  tft_->drawFastHLine(0, kHdrH - 1, tft_->width(), kDivider);
 }
 
 void TdeckChrome::paint_title_bar(const char *title, int page_idx,
                                   bool flock_alert, uint16_t bar_bg) {
   (void)flock_alert;
-  const int title_w = tft_.width() - kBatW;
+  const int title_w = tft_->width() - kBatW;
   (void)title_w;
 
-  tft_.setTextColor(kText, bar_bg);
-  tft_.setTextDatum(TL_DATUM);
+  tft_->setTextColor(kText, bar_bg);
+  tft_->setTextDatum(TL_DATUM);
   if (page_idx >= 0) {
-    draw_flockdar_logo(tft_, 4, 6, kFlock, bar_bg);
+    draw_flockdar_logo(*tft_, 4, 6, kFlock, bar_bg);
   }
   if (page_idx <= 0 && title && title[0]) {
-    tft_.drawString(title, 20, 6, kFontTitle);
+    tft_->drawString(title, 20, 6, kFontTitle);
   } else if (page_idx < 0 && title && title[0]) {
-    tft_.drawString(title, 4, 6, kFontTitle);
+    tft_->drawString(title, 4, 6, kFontTitle);
   }
 
   const char *tab = page_tab_label(page_idx);
   if (tab) {
-    tft_.setTextColor(kAccent, bar_bg);
-    tft_.setTextDatum(TC_DATUM);
-    tft_.drawString(tab, tft_.width() / 2, 8, kFontLabel);
+    paint_text_datum(tft_->width() / 2, 8, TC_DATUM, tab, kFontLabel, kAccent,
+                     bar_bg);
   }
 
   strncpy(title_, title, sizeof(title_) - 1);
   title_[sizeof(title_) - 1] = '\0';
   page_idx_ = page_idx;
   flock_alert_ = flock_alert;
-  tft_.setTextDatum(TL_DATUM);
+  tft_->setTextDatum(TL_DATUM);
 }
 
 int TdeckChrome::list_visible_rows(int top_y) const {
-  return (tft_.height() - top_y - kChromeBottom) / kRowH;
+  return (tft_->height() - top_y - kChromeBottom) / kRowH;
 }
 
 void TdeckChrome::paint_badge(int x, int y, const char *text, uint16_t fg,
                               uint16_t bg) {
   if (!text || !text[0]) return;
-  tft_.setTextFont(kFontLabel);
-  const int w = tft_.textWidth(text, kFontLabel) + 8;
+  tft_->setTextFont(kFontLabel);
+  const int w = tft_->textWidth(text, kFontLabel) + 8;
   const int h = 12;
-  tft_.fillRoundRect(x, y, w, h, 2, bg);
-  tft_.setTextColor(fg, bg);
-  tft_.setTextDatum(TL_DATUM);
-  tft_.drawString(text, x + 4, y, kFontLabel);
+  tft_->fillRoundRect(x, y, w, h, 2, bg);
+  tft_->setTextColor(fg, bg);
+  tft_->setTextDatum(TL_DATUM);
+  tft_->drawString(text, x + 4, y, kFontLabel);
 }
 
 void TdeckChrome::paint_battery(uint16_t bat_mv, bool bat_usb, bool flock_alert,
                                 uint16_t bar_bg) {
   (void)flock_alert;
-  const int x = tft_.width() - kBatW;
+  const int x = tft_->width() - kBatW;
 
   char bat[12];
   uint16_t bat_color = kText;
@@ -154,19 +153,17 @@ void TdeckChrome::paint_battery(uint16_t bat_mv, bool bat_usb, bool flock_alert,
     const int bar_x = x + 4;
     const int bar_y = kHdrH - 6;
     const int bar_w = kBatW - 8;
-    tft_.drawRect(bar_x, bar_y, bar_w, 4, kDivider);
+    tft_->drawRect(bar_x, bar_y, bar_w, 4, kDivider);
     const int fill_w = (int)(bar_w - 2) * pct / 100;
     if (fill_w > 0) {
-      tft_.fillRect(bar_x + 1, bar_y + 1, fill_w, 2, kAccent);
+      tft_->fillRect(bar_x + 1, bar_y + 1, fill_w, 2, kAccent);
     }
   } else {
     strncpy(bat, "--", sizeof(bat));
   }
 
-  tft_.setTextColor(bat_color, bar_bg);
-  tft_.setTextDatum(TR_DATUM);
-  tft_.drawString(bat, tft_.width() - 4, 4, kFontLabel);
-  tft_.setTextDatum(TL_DATUM);
+  paint_text_datum(tft_->width() - 4, 4, TR_DATUM, bat, kFontLabel, bat_color,
+                   bar_bg);
 
   bat_mv_ = bat_mv;
   bat_usb_ = bat_usb;
@@ -191,19 +188,62 @@ void TdeckChrome::paint_header(const char *title, int page_idx, uint16_t bat_mv,
   header_ok_ = true;
 }
 
+int TdeckChrome::text_anchor_x(int anchor_x, uint8_t datum, const char *text,
+                               uint8_t font) const {
+  if (!text || !text[0]) {
+    return anchor_x;
+  }
+  tft_->setTextFont(font);
+  const int tw = tft_->textWidth(text);
+  if (datum == TR_DATUM || datum == BR_DATUM || datum == MR_DATUM) {
+    return anchor_x - tw;
+  }
+  if (datum == TC_DATUM || datum == BC_DATUM || datum == MC_DATUM) {
+    return anchor_x - tw / 2;
+  }
+  return anchor_x;
+}
+
+void TdeckChrome::paint_text_datum(int anchor_x, int y, uint8_t datum,
+                                   const char *text, uint8_t font, uint16_t fg,
+                                   uint16_t bg) {
+  if (!text || !text[0]) {
+    return;
+  }
+  const int x = text_anchor_x(anchor_x, datum, text, font);
+  paint_text(x, y, text, font, fg, bg);
+}
+
+void TdeckChrome::paint_value_right(int y, const char *value, uint8_t font) {
+  if (!value || !value[0]) {
+    return;
+  }
+  tft_->setTextFont(font);
+  const int tw = tft_->textWidth(value);
+  const int x = tft_->width() - 4 - tw;
+  tft_->fillRect(x - 2, y, tw + 4, kFieldH, kBg);
+  paint_text(x, y, value, font, kText, kBg);
+}
+
 void TdeckChrome::paint_text(int x, int y, const char *text, uint8_t font,
                              uint16_t fg, uint16_t bg) {
-  tft_.setTextColor(fg, bg);
-  tft_.drawString(text, x, y, font);
+  if (!text || !text[0]) {
+    return;
+  }
+  tft_->setTextFont(font);
+  tft_->setTextDatum(TL_DATUM);
+  tft_->setTextColor(fg, bg);
+  tft_->drawString(text, x, y, font);
 }
 
 void TdeckChrome::clear_body() {
-  const int h = tft_.height() - kHdrH - kChromeBottom;
-  tft_.fillRect(0, kHdrH, tft_.width(), h, kBg);
+  const int h = tft_->height() - kHdrH - kChromeBottom;
+  tft_->fillRect(0, kHdrH, tft_->width(), h, kBg);
+  dots_ok_ = false;
 }
 
 void TdeckChrome::paint_divider(int y) {
-  tft_.drawFastHLine(4, y, tft_.width() - 8, kDivider);
+  tft_->drawFastHLine(4, y, tft_->width() - 8, kDivider);
 }
 
 void TdeckChrome::paint_section_label(int y, const char *label) {
@@ -211,23 +251,19 @@ void TdeckChrome::paint_section_label(int y, const char *label) {
 }
 
 void TdeckChrome::paint_field(int y, const char *label, const char *value) {
+  tft_->fillRect(0, y, tft_->width(), kFieldH, kBg);
   paint_text(4, y, label, kFontLabel, kTextMuted, kBg);
-  tft_.setTextColor(kText, kBg);
-  tft_.setTextDatum(TR_DATUM);
-  tft_.drawString(value, tft_.width() - 4, y, kFontValue);
-  tft_.setTextDatum(TL_DATUM);
+  paint_value_right(y, value, kFontValue);
 }
 
 void TdeckChrome::paint_field_icon(int y, StatusIcon icon, const char *label,
                                    const char *value) {
   constexpr int kIconX = 4;
   constexpr int kTextX = 22;
-  draw_status_icon(tft_, icon, kIconX, y, kTextMuted, kBg);
+  tft_->fillRect(0, y, tft_->width(), kFieldH, kBg);
+  draw_status_icon(*tft_, icon, kIconX, y, kTextMuted, kBg);
   paint_text(kTextX, y, label, kFontLabel, kTextMuted, kBg);
-  tft_.setTextColor(kText, kBg);
-  tft_.setTextDatum(TR_DATUM);
-  tft_.drawString(value, tft_.width() - 4, y, kFontValue);
-  tft_.setTextDatum(TL_DATUM);
+  paint_value_right(y, value, kFontValue);
 }
 
 int TdeckChrome::paint_wrapped_text(int x, int y, int max_w, const char *text,
@@ -237,7 +273,7 @@ int TdeckChrome::paint_wrapped_text(int x, int y, int max_w, const char *text,
     return y;
   }
 
-  tft_.setTextFont(font);
+  tft_->setTextFont(font);
   int lines = 0;
   const char *start = text;
   while (*start && lines < max_lines) {
@@ -258,7 +294,7 @@ int TdeckChrome::paint_wrapped_text(int x, int y, int max_w, const char *text,
       }
       memcpy(trial, start, len);
       trial[len] = '\0';
-      if (tft_.textWidth(trial, font) > max_w && cursor > start) {
+      if (tft_->textWidth(trial, font) > max_w && cursor > start) {
         break;
       }
       if (*cursor == ' ') {
@@ -289,18 +325,16 @@ int TdeckChrome::paint_wrapped_text(int x, int y, int max_w, const char *text,
 }
 
 void TdeckChrome::paint_chrome_bottom() {
-  const int dot_y = tft_.height() - kFooterH - kDotBandH / 2;
-  tft_.fillRect(0, tft_.height() - kChromeBottom, tft_.width(), kDotBandH,
-                kBg);
-  (void)dot_y;
+  tft_->fillRect(0, tft_->height() - kChromeBottom, tft_->width(), kDotBandH,
+                 kBg);
 }
 
 void TdeckChrome::paint_soft_key_label(int x, int y, uint8_t datum,
                                        const char *label, char hotkey) {
   if (!label || !label[0]) return;
 
-  tft_.setTextColor(kAccent, kSurface);
-  tft_.setTextFont(kFontLabel);
+  tft_->setTextColor(kAccent, kSurface);
+  tft_->setTextFont(kFontLabel);
 
   int hot_idx = -1;
   if (hotkey) {
@@ -314,9 +348,7 @@ void TdeckChrome::paint_soft_key_label(int x, int y, uint8_t datum,
   }
 
   if (hot_idx < 0) {
-    tft_.setTextDatum(datum);
-    tft_.drawString(label, x, y, kFontLabel);
-    tft_.setTextDatum(TL_DATUM);
+    paint_text_datum(x, y, datum, label, kFontLabel, kAccent, kSurface);
     return;
   }
 
@@ -330,7 +362,7 @@ void TdeckChrome::paint_soft_key_label(int x, int y, uint8_t datum,
   suffix[sizeof(suffix) - 1] = '\0';
 
   const char hot[2] = {label[hot_idx], '\0'};
-  const int total_w = tft_.textWidth(label, kFontLabel);
+  const int total_w = tft_->textWidth(label, kFontLabel);
   int x0 = x;
   if (datum == TC_DATUM) {
     x0 = x - total_w / 2;
@@ -338,20 +370,20 @@ void TdeckChrome::paint_soft_key_label(int x, int y, uint8_t datum,
     x0 = x - total_w;
   }
 
-  tft_.setTextDatum(TL_DATUM);
+  tft_->setTextDatum(TL_DATUM);
   int cx = x0;
   if (prefix[0]) {
-    tft_.drawString(prefix, cx, y, kFontLabel);
-    cx += tft_.textWidth(prefix, kFontLabel);
+    tft_->drawString(prefix, cx, y, kFontLabel);
+    cx += tft_->textWidth(prefix, kFontLabel);
   }
-  tft_.drawString(hot, cx, y, kFontLabel);
-  const int hot_w = tft_.textWidth(hot, kFontLabel);
-  tft_.drawFastHLine(cx, y + 9, hot_w, kAccent);
+  tft_->drawString(hot, cx, y, kFontLabel);
+  const int hot_w = tft_->textWidth(hot, kFontLabel);
+  tft_->drawFastHLine(cx, y + 9, hot_w, kAccent);
   cx += hot_w;
   if (suffix[0]) {
-    tft_.drawString(suffix, cx, y, kFontLabel);
+    tft_->drawString(suffix, cx, y, kFontLabel);
   }
-  tft_.setTextDatum(TL_DATUM);
+  tft_->setTextDatum(TL_DATUM);
 }
 
 void TdeckChrome::paint_soft_keys(const char *left, char left_key,
@@ -367,20 +399,20 @@ void TdeckChrome::paint_soft_keys(const char *left, char left_key,
     return;
   }
 
-  const int y = tft_.height() - kFooterH;
-  tft_.fillRect(0, y, tft_.width(), kFooterH, kSurface);
-  tft_.drawFastHLine(0, y, tft_.width(), kDivider);
+  const int y = tft_->height() - kFooterH;
+  tft_->fillRect(0, y, tft_->width(), kFooterH, kSurface);
+  tft_->drawFastHLine(0, y, tft_->width(), kDivider);
 
   const int text_y = y + kSoftKeyTextY;
   if (left[0]) {
     paint_soft_key_label(4, text_y, TL_DATUM, left, left_key);
   }
   if (center[0]) {
-    paint_soft_key_label(tft_.width() / 2, text_y, TC_DATUM, center,
+    paint_soft_key_label(tft_->width() / 2, text_y, TC_DATUM, center,
                          center_key);
   }
   if (right[0]) {
-    paint_soft_key_label(tft_.width() - 4, text_y, TR_DATUM, right,
+    paint_soft_key_label(tft_->width() - 4, text_y, TR_DATUM, right,
                          right_key);
   }
 
@@ -399,18 +431,18 @@ void TdeckChrome::paint_page_dots(size_t count, size_t active) {
     return;
   }
   constexpr int kGap = 10;
-  const int y = tft_.height() - kFooterH - kDotBandH / 2;
+  const int y = tft_->height() - kFooterH - kDotBandH - 2;
   const int active_r = 3;
   const int idle_r = 2;
   const int step = active_r * 2 + kGap;
   const int total_w = (int)count * step - kGap;
-  int x = (tft_.width() - total_w) / 2 + active_r;
-  tft_.fillRect(0, y - active_r - 2, tft_.width(), active_r * 2 + 5, kBg);
+  int x = (tft_->width() - total_w) / 2 + active_r;
+  tft_->fillRect(0, y - active_r - 2, tft_->width(), active_r * 2 + 5, kBg);
   for (size_t i = 0; i < count; i++) {
     if (i == active) {
-      tft_.fillCircle(x, y, active_r, kAccent);
+      tft_->fillCircle(x, y, active_r, kAccent);
     } else {
-      tft_.drawCircle(x, y, idle_r, kAccentDim);
+      tft_->drawCircle(x, y, idle_r, kAccentDim);
     }
     x += step;
   }
@@ -425,18 +457,18 @@ void TdeckChrome::paint_list_row(int y, bool selected, bool flock_accent,
                                  bool has_icon) {
   const uint16_t bg = selected ? kSurfaceAlt : kBg;
   const int row_h = kRowH - 1;
-  tft_.fillRect(0, y, tft_.width(), row_h, bg);
+  tft_->fillRect(0, y, tft_->width(), row_h, bg);
   if (selected) {
     const uint16_t bar = flock_accent ? kFlock : kAccent;
-    tft_.fillRect(0, y, kAccentW, row_h, bar);
+    tft_->fillRect(0, y, kAccentW, row_h, bar);
   }
-  tft_.drawFastHLine(0, y + row_h - 1, tft_.width(), kDivider);
+  tft_->drawFastHLine(0, y + row_h - 1, tft_->width(), kDivider);
 
   int text_x = 4 + (selected ? kAccentW : 0);
   if (has_icon) {
     const DevIcon dev = static_cast<DevIcon>(icon);
     const uint16_t icon_fg = selected ? kAccent : kTextMuted;
-    draw_dev_icon(tft_, dev, text_x, y + 10, icon_fg, bg);
+    draw_dev_icon(*tft_, dev, text_x, y + 10, icon_fg, bg);
     text_x += 18;
   }
   paint_text(text_x, y + 4, line1, font1, kText, bg);
@@ -445,10 +477,10 @@ void TdeckChrome::paint_list_row(int y, bool selected, bool flock_accent,
   }
 }
 
-void TdeckChrome::paint_scroll_list(size_t count, size_t *sel,
-                                    size_t *paint_sel, size_t *paint_start,
-                                    size_t *paint_count, ScrollRowFn row_fn,
-                                    int top_y, bool force) {
+template <typename PaintRow>
+void TdeckChrome::paint_list_core(size_t count, size_t *sel, size_t *paint_sel,
+                                  size_t *paint_start, size_t *paint_count,
+                                  PaintRow paint_row, int top_y, bool force) {
   const int visible = list_visible_rows(top_y);
 
   if (count == 0) {
@@ -462,15 +494,38 @@ void TdeckChrome::paint_scroll_list(size_t count, size_t *sel,
     return;
   }
 
-  if (*sel >= count) {
-    *sel = count - 1;
-  }
+  if (*sel >= count) *sel = count - 1;
 
   size_t start = 0;
-  if (count > (size_t)visible && *sel >= (size_t)visible) {
+  if (count > (size_t)visible && *sel >= (size_t)visible)
     start = *sel - (size_t)visible + 1;
+
+  if (!force && count == *paint_count && start == *paint_start &&
+      *sel != *paint_sel && *paint_sel != SIZE_MAX) {
+    const size_t old_sel = *paint_sel;
+    if (old_sel >= start && old_sel < start + (size_t)visible)
+      paint_row(old_sel, old_sel - start, false);
+    if (*sel >= start && *sel < start + (size_t)visible)
+      paint_row(*sel, *sel - start, true);
+    *paint_sel = *sel;
+    return;
   }
 
+  if (force || start != *paint_start || *sel != *paint_sel ||
+      count != *paint_count) {
+    clear_body();
+    for (size_t i = start; i < count && (int)(i - start) < visible; i++)
+      paint_row(i, i - start, i == *sel);
+    *paint_sel = *sel;
+    *paint_start = start;
+    *paint_count = count;
+  }
+}
+
+void TdeckChrome::paint_scroll_list(size_t count, size_t *sel,
+                                    size_t *paint_sel, size_t *paint_start,
+                                    size_t *paint_count, ScrollRowFn row_fn,
+                                    int top_y, bool force) {
   auto paint_row = [&](size_t index, size_t row_index, bool selected) {
     char line1[20];
     char line2[48];
@@ -479,58 +534,14 @@ void TdeckChrome::paint_scroll_list(size_t count, size_t *sel,
     const int y = top_y + (int)row_index * kRowH;
     paint_list_row(y, selected, flock, line1, kFontMac, line2);
   };
-
-  if (!force && count == *paint_count && start == *paint_start &&
-      *sel != *paint_sel && *paint_sel != SIZE_MAX) {
-    const size_t old_sel = *paint_sel;
-    if (old_sel >= start && old_sel < start + (size_t)visible) {
-      paint_row(old_sel, old_sel - start, false);
-    }
-    if (*sel >= start && *sel < start + (size_t)visible) {
-      paint_row(*sel, *sel - start, true);
-    }
-    *paint_sel = *sel;
-    return;
-  }
-
-  if (force || start != *paint_start || *sel != *paint_sel ||
-      count != *paint_count) {
-    clear_body();
-    for (size_t i = start; i < count && (int)(i - start) < visible; i++) {
-      paint_row(i, i - start, i == *sel);
-    }
-    *paint_sel = *sel;
-    *paint_start = start;
-    *paint_count = count;
-  }
+  paint_list_core(count, sel, paint_sel, paint_start, paint_count, paint_row,
+                  top_y, force);
 }
 
 void TdeckChrome::paint_icon_scroll_list(
     size_t count, size_t *sel, size_t *paint_sel, size_t *paint_start,
     size_t *paint_count, IconRowFn row_fn, int top_y, bool force,
     bool flock_accent) {
-  const int visible = list_visible_rows(top_y);
-
-  if (count == 0) {
-    if (force) {
-      clear_body();
-      paint_text(4, top_y + 8, "Nothing seen yet", kFontLabel, kTextMuted, kBg);
-    }
-    *paint_sel = *sel;
-    *paint_start = 0;
-    *paint_count = 0;
-    return;
-  }
-
-  if (*sel >= count) {
-    *sel = count - 1;
-  }
-
-  size_t start = 0;
-  if (count > (size_t)visible && *sel >= (size_t)visible) {
-    start = *sel - (size_t)visible + 1;
-  }
-
   auto paint_row = [&](size_t index, size_t row_index, bool selected) {
     IconRow row{};
     row_fn(index, &row);
@@ -538,30 +549,8 @@ void TdeckChrome::paint_icon_scroll_list(
     paint_list_row(y, selected, flock_accent, row.line1, kFontLabel, row.line2,
                    row.icon, true);
   };
-
-  if (!force && count == *paint_count && start == *paint_start &&
-      *sel != *paint_sel && *paint_sel != SIZE_MAX) {
-    const size_t old_sel = *paint_sel;
-    if (old_sel >= start && old_sel < start + (size_t)visible) {
-      paint_row(old_sel, old_sel - start, false);
-    }
-    if (*sel >= start && *sel < start + (size_t)visible) {
-      paint_row(*sel, *sel - start, true);
-    }
-    *paint_sel = *sel;
-    return;
-  }
-
-  if (force || start != *paint_start || *sel != *paint_sel ||
-      count != *paint_count) {
-    clear_body();
-    for (size_t i = start; i < count && (int)(i - start) < visible; i++) {
-      paint_row(i, i - start, i == *sel);
-    }
-    *paint_sel = *sel;
-    *paint_start = start;
-    *paint_count = count;
-  }
+  paint_list_core(count, sel, paint_sel, paint_start, paint_count, paint_row,
+                  top_y, force);
 }
 
 #endif  // FD_ENABLE_TDECK_UI

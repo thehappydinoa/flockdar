@@ -1,7 +1,7 @@
 # Setup guide
 
-Cross-platform install instructions for every flockdar tool, on **macOS**,
-**Linux**, and **Windows**:
+Cross-platform install for both **host CLI** (Python) and **ESP32 firmware**
+(PlatformIO). Overview and architecture: [**docs/README.md**](docs/README.md).
 
 1. [The Python detector / TUI](#1-python-tool-tuipy) — analyse WiGLE data
 2. [The ESP32 firmware toolchain](#2-esp32-firmware-toolchain) — build & flash the scanner
@@ -70,12 +70,14 @@ Per-OS notes:
 
 - **macOS** — `brew install platformio` also works.
 - **Linux** — install the udev rules so flashing works without `sudo`:
+
   ```bash
   curl -fsSL https://raw.githubusercontent.com/platformio/platformio-core/develop/platformio/assets/system/99-platformio-udev.rules \
     | sudo tee /etc/udev/rules.d/99-platformio-udev.rules
   sudo udevadm control --reload-rules && sudo udevadm trigger
   sudo usermod -aG dialout "$USER"     # then log out / back in
   ```
+
 - **Windows** — install from PowerShell with `uv`/`pipx` as above, or use the
   VS Code PlatformIO IDE extension (bundles everything).
 

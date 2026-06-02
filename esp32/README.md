@@ -1,8 +1,11 @@
 # flockdar-esp32
 
-ESP32 firmware for passive Flock Safety camera detection. Companion hardware
-to the `flockdar` Python tool — streams detections as JSON over USB serial
-for real-time ingestion by the TUI.
+ESP32 firmware for passive Flock Safety camera detection — the **device half**
+of flockdar. Streams HMAC-signed JSON over USB serial (and optional microSD
+logs) for the **host CLI** in `src/flockdar/`.
+
+Docs hub: [**../docs/README.md**](../docs/README.md) · example UI:
+![Status screen](../docs/screenshots/status.png)
 
 > **Status: firmware implemented.** PlatformIO project under `src/` — WiFi
 > promiscuous + BLE scanners, HMAC-signed JSON-over-serial, optional OLED and
@@ -75,7 +78,9 @@ is lost (then status resumes while re-acquiring).
 ### Diagnostics
 
 Type `stats` on the serial console for a JSON snapshot: `queue_drops`, `emits`,
-`wifi_mgmt`, `ble_adverts`, `free_heap`, `min_heap`. Long-run validation:
+`wifi_mgmt`, `ble_adverts`, `ram` (used MB and %). On T-Deck builds, `screenshot`
+dumps the TFT as RGB565 over serial; save with `uv run python esp32/screenshot.py
+<port> -o out.bmp` (see [BOARDS.md](BOARDS.md)). Long-run validation:
 [SOAK.md](SOAK.md).
 
 ### SD card over serial

@@ -2,9 +2,65 @@
 
 [![PyPI](https://img.shields.io/pypi/v/flockdar)](https://pypi.org/project/flockdar/)
 
-Passive RF detection of Flock Safety ALPR (automatic license plate reader) cameras from [WiGLE](https://wigle.net) wardriving data.
+Passive RF detection of Flock Safety ALPR (automatic license plate reader) cameras from [WiGLE](https://wigle.net) wardriving data and from **live ESP32 scanners**.
 
-Works with both the **WiGLE Android app SQLite backup** and **WiGLE CSV exports** (`.csv.gz`). All detection runs fully offline. Optional enrichment queries cross-reference hits against [DeFlock/OSM](https://deflock.org), [ALPRWatch](https://alprwatch.org), and the [WiGLE API](https://api.wigle.net).
+---
+
+## Two components
+
+| | **Host CLI** (Python) | **ESP32 firmware** |
+|---|---|---|
+| **What** | Analyse WiGLE exports, enrich hits, interactive TUI | Real-time WiFi/BLE scanner with optional on-device UI |
+| **Where** | `src/flockdar/` · [`flockdar` on PyPI](https://pypi.org/project/flockdar/) | `esp32/` · [PlatformIO](https://platformio.org/) |
+| **Runs on** | Your laptop (macOS, Linux, Windows) | LilyGO **T-Deck** (recommended) or generic ESP32-S3 |
+| **Needs hardware?** | No (WiGLE file alone is enough) | Yes, to transmit live; SD logs can be replayed in the CLI later |
+| **Main commands** | `flockdar`, `flockdar-ingest` | `pio run -e t-deck -t upload` |
+
+The CLI and firmware share the same signature lists in `signatures.py` / `oui_list.h`. USB serial and SD-card NDJSON use the same `Hit` pipeline as WiGLE SQLite/CSV.
+
+**Full docs hub:** [**docs/README.md**](docs/README.md) · per-OS setup: [**SETUP.md**](SETUP.md)
+
+![T-Deck Status screen — firmware UI](docs/screenshots/status.png)
+
+---
+
+## Quick start
+
+### Host CLI
+
+Works with **no ESP32** — only a WiGLE backup or export.
+
+```bash
+pip install flockdar && flockdar wigle_backup.sqlite
+```
+
+From source ([SETUP.md](SETUP.md)):
+
+```bash
+git clone https://github.com/thehappydinoa/flockdar
+cd flockdar && uv sync
+uv run flockdar wigle_backup.sqlite
+uv run flockdar WigleWifi_export.csv.gz
+```
+
+| Input | Example |
+|-------|---------|
+| WiGLE SQLite (best) | `uv run flockdar wigle_backup.sqlite` |
+| WiGLE CSV | `uv run flockdar WigleWifi_export.csv.gz` |
+| Live serial (firmware) | `uv run flockdar --serial COM4` |
+| SD log replay | `uv run flockdar flock-0001.ndjson` |
+
+### ESP32 firmware
+
+Build and flash first, then open the CLI on serial (or copy the `.ndjson` log off the card).
+
+```bash
+uv run esp32/gen_oui_header.py
+cd esp32 && pio run -e t-deck -t upload
+uv run flockdar --serial COM4
+```
+
+Board-specific steps: [**esp32/BOARDS.md**](esp32/BOARDS.md). Protocol and pins: [**esp32/README.md**](esp32/README.md).
 
 ---
 
@@ -26,42 +82,7 @@ Works with both the **WiGLE Android app SQLite backup** and **WiGLE CSV exports*
 
 ---
 
-## Quick start
-
-**Install from PyPI:**
-
-```bash
-pip install flockdar
-flockdar wigle_backup.sqlite
-```
-
-Or as an isolated tool via [uv](https://docs.astral.sh/uv/):
-
-```bash
-uv tool install flockdar
-flockdar wigle_backup.sqlite
-```
-
-**From source:**
-
-Full per-OS setup for every tool (Python, ESP32 toolchain, serial drivers) is in
-[SETUP.md](SETUP.md).
-
-```bash
-git clone https://github.com/thehappydinoa/flockdar
-cd flockdar
-uv sync
-uv run flockdar wigle_backup.sqlite
-uv run flockdar WigleWifi_export.csv.gz
-
-# live capture from an ESP32 scanner (see SETUP.md):
-uv run flockdar --serial /dev/ttyUSB0        # macOS / Linux
-uv run flockdar --serial COM3                # Windows
-# replay an SD-card log from the firmware:
-uv run flockdar flock-0001.ndjson
-```
-
-### TUI keybindings
+## TUI keybindings
 
 | Key | Action |
 |-----|--------|
@@ -111,6 +132,46 @@ Open the WiGLE WiFi Wardriving app → Menu → Backup Database → copy `wigle.
 
 **CSV export** — no BLE service UUID data:
 wigle.net → My Account → Downloads, or app → Menu → Export to SD.
+
+---
+
+## Repository layout
+
+```mermaid
+flowchart TB
+  subgraph py["Host CLI — src/flockdar/"]
+    SIG[signatures.py]
+    DET[detect.py]
+    ENR[enrich.py]
+    DIS[discover.py]
+    SER[serial_import.py]
+    TUI[tui.py]
+    SIG --> DET --> TUI
+    DET --> ENR --> TUI
+    DIS --> TUI
+    SER --> TUI
+  end
+
+  subgraph fw["ESP32 firmware — esp32/"]
+    SCAN[wifi_scanner + ble_scanner]
+    MATCH[match.cpp / oui_list.h]
+    UI[tdeck_ui optional]
+    SCAN --> MATCH
+    UI --> SCAN
+  end
+
+  fw -->|USB / SD NDJSON| SER
+```
+
+| Path | Component |
+|------|-----------|
+| `src/flockdar/` | Python package — detection, TUI, ingest, enrichment |
+| `esp32/` | Firmware — scanners, UI, serial protocol |
+| `docs/` | Documentation hub and screenshots |
+| `tests/` | pytest (CLI + signature parity) |
+| `SETUP.md` | Install for Python and PlatformIO on all OSes |
+
+Console scripts: `flockdar` → TUI; `flockdar-ingest` → headless ingest ([`serial_import.py`](src/flockdar/serial_import.py)).
 
 ---
 
@@ -169,66 +230,6 @@ Raven firmware exposes a readable GATT tree without authentication when within B
 | `0x3101` / `0x3102` | Camera's own GPS latitude / longitude |
 | `0x3303` | LTE operator |
 | `0x3402` | Most recent upload time |
-
----
-
-## Files
-
-```mermaid
-graph LR
-    SIG[signatures.py]
-    DET[detect.py]
-    ENR[enrich.py]
-    DIS[discover.py]
-    SER[serial_import.py]
-    TUI[tui.py]
-
-    SIG --> DET
-    DET --> TUI
-    DET --> ENR
-    ENR --> TUI
-    DIS --> TUI
-    SER --> TUI
-```
-
-```
-src/flockdar/
-  tui.py           Textual TUI — main entry point (file or --serial live mode)
-  detect.py        Detection logic (no UI dependency, importable)
-  enrich.py        Async enrichers: OSM/DeFlock, ALPRWatch, WiGLE API
-  discover.py      WiGLE-based discovery of unseen Flock cameras (cached)
-  serial_import.py ESP32 serial / NDJSON ingest — verify HMAC, map to Hits
-  signatures.py    All OUI prefixes, BLE UUIDs, SSID/name patterns
-  __main__.py      `python -m flockdar` entry point
-esp32/             ESP32 companion firmware (PlatformIO) + OUI header generator
-tests/             pytest suite (asyncio_mode=auto)
-SETUP.md           Per-OS setup for every tool (macOS / Linux / Windows)
-pyproject.toml     uv / hatchling project — dependencies, scripts, packaging
-CLAUDE.md          Architecture notes for AI coding assistants
-```
-
-Standard src-layout Python package (`flockdar`), built with
-[hatchling](https://hatch.pypa.io/). Console scripts: `flockdar` (TUI) and
-`flockdar-ingest` (headless serial/NDJSON ingest).
-
-## ESP32 companion
-
-`esp32/` is a working PlatformIO firmware that detects Flock cameras in real
-time and streams them to this tool:
-
-- **WiFi promiscuous mode** — OUI-matched `addr2`/`addr1` (catches sleeping
-  cameras as the receiver) + wildcard probe requests
-- **BLE scanning** — `FS Ext Battery`, manufacturer ID 2504, etc.
-- **Signed JSON over USB serial** — HMAC-verified by `serial_import` and fed
-  into the live TUI via `uv run flockdar --serial /dev/ttyUSB0`
-- **microSD logging** — untethered wardriving to `flock-NNNN.ndjson`, replayed
-  with `uv run flockdar flock-0001.ndjson`
-
-See [`esp32/BOARDS.md`](esp32/BOARDS.md) for **per-board build and flash**
-(including [T-Deck](esp32/BOARDS.md#lilygo-t-deck--t-deck-plus-envt-deck)),
-[`esp32/README.md`](esp32/README.md) for protocol and hardware notes, and
-[SETUP.md](SETUP.md) for the toolchain install. `gen_oui_header.py` generates
-the C signature header from `signatures.py` so the lists stay in sync.
 
 ---
 

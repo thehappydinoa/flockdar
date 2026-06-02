@@ -30,4 +30,5 @@
 #define SMOOTH_FONT
 
 #define SPI_FREQUENCY 40000000
-#define SPI_READ_FREQUENCY 20000000
+// ST7789 readback is unreliable above ~6 MHz on many panels.
+#define SPI_READ_FREQUENCY 6000000

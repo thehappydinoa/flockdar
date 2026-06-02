@@ -182,7 +182,12 @@ void sdlog_write(const char *line) {
   s_dirty = true;
 }
 
+void sdlog_bus_hold(bool hold) { s_host_busy = hold; }
+
 void sdlog_loop() {
+  if (s_host_busy) {
+    return;
+  }
 #if defined(FD_ENABLE_TDECK_UI)
   if (!s_ok && millis() - s_last_mount_try >= 5000) {
     s_last_mount_try = millis();

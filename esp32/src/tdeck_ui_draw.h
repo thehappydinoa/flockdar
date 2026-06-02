@@ -27,6 +27,7 @@ class TdeckChrome {
   void paint_field(int y, const char *label, const char *value);
   void paint_field_icon(int y, StatusIcon icon, const char *label,
                         const char *value);
+  void paint_value_right(int y, const char *value, uint8_t font);
   // Word-wrap text; returns y below the last painted line.
   int paint_wrapped_text(int x, int y, int max_w, const char *text,
                          uint8_t font, uint16_t fg, uint16_t bg,
@@ -61,10 +62,11 @@ class TdeckChrome {
                               IconRowFn row_fn, int top_y, bool force,
                               bool flock_accent = false);
 
-  TFT_eSPI &tft() { return tft_; }
+  TFT_eSPI &tft() { return *tft_; }
+  void bind(TFT_eSPI &target) { tft_ = &target; }
 
  private:
-  TFT_eSPI &tft_;
+  TFT_eSPI *tft_;
   char title_[20];
   int page_idx_;
   uint16_t bat_mv_;
@@ -89,6 +91,14 @@ class TdeckChrome {
   void paint_header_background(bool flock_alert);
   void paint_soft_key_label(int x, int y, uint8_t datum, const char *label,
                             char hotkey);
+  int text_anchor_x(int anchor_x, uint8_t datum, const char *text,
+                    uint8_t font) const;
+  void paint_text_datum(int anchor_x, int y, uint8_t datum, const char *text,
+                        uint8_t font, uint16_t fg, uint16_t bg);
   static uint8_t battery_percent(uint16_t mv);
   int list_visible_rows(int top_y) const;
+  template <typename PaintRow>
+  void paint_list_core(size_t count, size_t *sel, size_t *paint_sel,
+                       size_t *paint_start, size_t *paint_count,
+                       PaintRow row_fn, int top_y, bool force);
 };

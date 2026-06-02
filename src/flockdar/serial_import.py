@@ -101,7 +101,9 @@ def _channel_to_mhz(channel: int) -> int:
     return 0
 
 
-def line_to_record(obj: dict[str, Any], pos: dict[str, float]) -> tuple[Record, str] | None:
+def line_to_record(
+    obj: dict[str, Any], pos: dict[str, float]
+) -> tuple[Record, str] | None:
     """Map a parsed wifi/ble event to a detect Record + its detection method.
 
     Returns None for non-detection events. `pos` carries the latest GPS fix.
@@ -249,7 +251,9 @@ def iter_records(
             yield rec, method, detail
 
 
-def iter_hits(lines: Iterable[str], key: bytes, verify: bool = True) -> Iterator[detect.Hit]:
+def iter_hits(
+    lines: Iterable[str], key: bytes, verify: bool = True
+) -> Iterator[detect.Hit]:
     """Yield a Hit per detection line (no dedup — see merge_hits)."""
     for rec, method, detail in iter_records(lines, key, verify=verify):
         hit = detect.analyze(**rec)
@@ -275,7 +279,9 @@ def merge_hit(seen: dict[str, detect.Hit], hit: detect.Hit) -> bool:
     return False
 
 
-def load_log(path: Path, key: bytes, verify: bool = True) -> tuple[list[detect.Hit], int]:
+def load_log(
+    path: Path, key: bytes, verify: bool = True
+) -> tuple[list[detect.Hit], int]:
     """Read a saved NDJSON log, returning (deduped hits, detection lines seen)."""
     seen: dict[str, detect.Hit] = {}
     total = 0
@@ -305,6 +311,33 @@ def log_lines(path: Path | str) -> Iterator[str]:
         yield from f
 
 
+def _win_clr_dtr_rts(port: str) -> None:
+    """Best-effort: deassert DTR/RTS before pyserial open (Windows CP210x quirk)."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+    except ImportError:
+        return
+    path = port if port.upper().startswith("\\\\.\\") else f"\\\\.\\{port}"
+    handle = ctypes.windll.kernel32.CreateFileW(
+        path,
+        ctypes.c_uint32(0xC0000000),  # GENERIC_READ | GENERIC_WRITE
+        0,
+        None,
+        3,  # OPEN_EXISTING
+        0,
+        None,
+    )
+    if handle in (-1, 0xFFFFFFFF):
+        return
+    try:
+        ctypes.windll.kernel32.EscapeCommFunction(handle, 6)  # CLRDTR
+        ctypes.windll.kernel32.EscapeCommFunction(handle, 4)  # CLRRTS
+    finally:
+        ctypes.windll.kernel32.CloseHandle(handle)
+
+
 def _serial_open(port: str, baud: int):
     """Open a serial port without toggling DTR/RTS (avoids ESP32 USB-CDC reset)."""
     try:
@@ -313,10 +346,14 @@ def _serial_open(port: str, baud: int):
         raise RuntimeError(
             "pyserial is required for serial access; install with `uv sync`"
         ) from exc
+    _win_clr_dtr_rts(port)
     ser = serial.Serial()
     ser.port = port
     ser.baudrate = baud
     ser.timeout = 1
+    ser.rtscts = False
+    ser.dsrdtr = False
+    ser.xonxoff = False
     # ESP32-S3 native USB resets on DTR/RTS edges (same mechanism as `pio upload`).
     ser.dtr = False
     ser.rts = False
@@ -324,8 +361,11 @@ def _serial_open(port: str, baud: int):
         ser.open()
     except serial.SerialException as exc:
         raise RuntimeError(f"cannot open serial port {port}: {exc}") from exc
-    ser.dtr = False
-    ser.rts = False
+    # Some Windows USB-UART drivers pulse DTR on open; deassert repeatedly.
+    for _ in range(10):
+        ser.dtr = False
+        ser.rts = False
+        time.sleep(0.05)
     return ser
 
 
@@ -504,7 +544,9 @@ def serial_sd_dump(
                     print(f"  {msg}", file=sys.stderr, flush=True)
                 elif msg and msg.startswith("sd dump fail"):
                     raise RuntimeError(msg)
-                elif (msg and msg.startswith("sd dump begin")) or ("sd dump begin" in line):
+                elif (msg and msg.startswith("sd dump begin")) or (
+                    "sd dump begin" in line
+                ):
                     capturing = True
                     if msg:
                         print(f"  {msg}", file=sys.stderr, flush=True)
@@ -664,10 +706,14 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(
         description="Ingest the flockdar-esp32 JSON stream (serial or NDJSON log)."
     )
-    ap.add_argument("source", help="serial port (/dev/ttyUSB0, COM3) or NDJSON log file")
+    ap.add_argument(
+        "source", help="serial port (/dev/ttyUSB0, COM3) or NDJSON log file"
+    )
     ap.add_argument("output", nargs="?", help="optional output .sqlite (TUI-openable)")
     ap.add_argument("--baud", type=int, default=DEFAULT_BAUD)
-    ap.add_argument("--key", help=f"HMAC key (or ${ENV_HMAC_KEY}; default firmware key)")
+    ap.add_argument(
+        "--key", help=f"HMAC key (or ${ENV_HMAC_KEY}; default firmware key)"
+    )
     ap.add_argument("--no-verify", action="store_true", help="skip HMAC verification")
     ap.add_argument(
         "--monitor",
@@ -730,7 +776,9 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Done — {len(result.lines)} line(s).", file=sys.stderr)
         rows = result.lines
         if args.output:
-            Path(args.output).write_text("\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
+            Path(args.output).write_text(
+                "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8"
+            )
             print(f"Wrote {len(rows)} line(s) -> {args.output}", file=sys.stderr)
         else:
             for row in rows:
@@ -748,7 +796,10 @@ def main(argv: list[str] | None = None) -> int:
         label = f"Reading {args.source}"
 
     if args.monitor:
-        print(f"{label} — Ctrl-C to stop (port stays open until you exit).", file=sys.stderr)
+        print(
+            f"{label} — Ctrl-C to stop (port stays open until you exit).",
+            file=sys.stderr,
+        )
         try:
             monitor_stream(lines)
         except KeyboardInterrupt:

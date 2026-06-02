@@ -14,6 +14,9 @@
 #ifdef FD_ENABLE_SD
 #include "sdlog.h"
 #endif
+#ifdef FD_ENABLE_TDECK_UI
+#include "tdeck_ui.h"
+#endif
 
 namespace {
 
@@ -35,6 +38,15 @@ void handle_cmd(char *cmd) {
     serial_out_stats(body, n);
     return;
   }
+
+#ifdef FD_ENABLE_TDECK_UI
+  if (strcmp(cmd, "screenshot") == 0) {
+    if (!tdeck_screenshot_begin()) {
+      serial_out_info("screenshot failed");
+    }
+    return;
+  }
+#endif
 
 #ifdef FD_ENABLE_GPS
   if (strncmp(cmd, "tz", 2) == 0 &&

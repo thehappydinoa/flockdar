@@ -3,6 +3,8 @@
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 Project name: **flockdar** (passive RF detection of Flock Safety ALPR cameras).
+Two components: **host CLI** (`src/flockdar/`, PyPI) and **ESP32 firmware**
+(`esp32/`). User-facing overview: `docs/README.md`, `README.md`.
 
 ## Commands
 

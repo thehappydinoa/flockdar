@@ -26,7 +26,7 @@
 #endif
 // Bump when flashing to confirm the new build is running (shown on boot + status).
 #ifndef FD_FW_VERSION
-#define FD_FW_VERSION "0.3.2"
+#define FD_FW_VERSION "0.3.6"
 #endif
 
 // HMAC-SHA256 key shared with the Python receiver so it can reject forged or
@@ -87,9 +87,14 @@
 #endif  // FD_ENABLE_GPS
 
 // T-Deck UI: blank backlight after idle (ms). Wake on keyboard or trackball.
-// Set 0 to disable auto sleep.
+// Set 0 to disable auto sleep (disabled for now — sleep/wake was causing reboots).
 #ifdef FD_ENABLE_TDECK_UI
 #ifndef FD_DISPLAY_SLEEP_MS
-#define FD_DISPLAY_SLEEP_MS 120000
+#define FD_DISPLAY_SLEEP_MS 0
+#endif
+// Carousel L/R: wait this long after a horizontal tick; cancel if U/D arrives
+// in the meantime (iPod-style axis separation — one tick, feels immediate).
+#ifndef FD_TRACKBALL_H_SETTLE_MS
+#define FD_TRACKBALL_H_SETTLE_MS 75
 #endif
 #endif  // FD_ENABLE_TDECK_UI
