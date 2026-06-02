@@ -70,4 +70,8 @@
 #ifndef FD_GPS_STATUS_INTERVAL_MS
 #define FD_GPS_STATUS_INTERVAL_MS 30000
 #endif
+// Minutes added to GPS UTC to get local "Seen at" time (US Eastern std: -300).
+#ifndef FD_TZ_OFFSET_MINUTES
+#define FD_TZ_OFFSET_MINUTES 0
+#endif
 #endif  // FD_ENABLE_GPS

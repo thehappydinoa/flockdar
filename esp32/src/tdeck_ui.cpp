@@ -113,6 +113,13 @@ struct HitLine {
   double lat;
   double lon;
   bool has_gps;
+  bool has_utc;
+  uint16_t utc_year;
+  uint8_t utc_month;
+  uint8_t utc_day;
+  uint8_t utc_hour;
+  uint8_t utc_minute;
+  uint8_t utc_second;
 };
 
 enum class DetailSource : uint8_t { kFlock = 0, kNearby = 1 };
@@ -226,21 +233,29 @@ const char *screen_title(Screen s) {
   }
 }
 
-void format_seen_time(uint32_t ts_ms, char *buf, size_t bufsz) {
-  const uint32_t sec = ts_ms / 1000U;
-  const uint32_t h = sec / 3600U;
-  const uint32_t m = (sec % 3600U) / 60U;
-  const uint32_t s = sec % 60U;
-  if (h > 0U) {
-    snprintf(buf, bufsz, "%uh %02um %02us", (unsigned)h, (unsigned)m,
-             (unsigned)s);
-  } else {
-    snprintf(buf, bufsz, "%um %02us", (unsigned)m, (unsigned)s);
-  }
+void format_seen_at(bool has_utc, uint16_t year, uint8_t month, uint8_t day,
+                    uint8_t hour, uint8_t minute, uint8_t second, char *buf,
+                    size_t bufsz) {
+#ifdef FD_ENABLE_GPS
+  gps_format_local_time(has_utc, year, month, day, hour, minute, second, buf,
+                        bufsz);
+#else
+  (void)has_utc;
+  (void)year;
+  (void)month;
+  (void)day;
+  (void)hour;
+  (void)minute;
+  (void)second;
+  strncpy(buf, "no GPS", bufsz - 1);
+  buf[bufsz - 1] = '\0';
+#endif
 }
 
 void paint_location_section(int &y, bool has_gps, double lat, double lon,
-                            uint32_t ts_ms) {
+                            bool has_utc, uint16_t utc_year, uint8_t utc_month,
+                            uint8_t utc_day, uint8_t utc_hour,
+                            uint8_t utc_minute, uint8_t utc_second) {
   char val[32];
   chrome.paint_section_label(y, "LOCATION");
   y += kSectionH + 2;
@@ -255,7 +270,8 @@ void paint_location_section(int &y, bool has_gps, double lat, double lon,
   chrome.paint_field(y, "Position", "no GPS");
 #endif
   y += kFieldH;
-  format_seen_time(ts_ms, val, sizeof(val));
+  format_seen_at(has_utc, utc_year, utc_month, utc_day, utc_hour, utc_minute,
+                 utc_second, val, sizeof(val));
   chrome.paint_field(y, "Seen at", val);
   y += kFieldH;
 }
@@ -353,8 +369,19 @@ void push_hit(const Detection &d) {
     line.lat = lat;
     line.lon = lon;
   }
+  GpsUtcTime utc{};
+  line.has_utc = gps_utc_now(&utc);
+  if (line.has_utc) {
+    line.utc_year = utc.year;
+    line.utc_month = utc.month;
+    line.utc_day = utc.day;
+    line.utc_hour = utc.hour;
+    line.utc_minute = utc.minute;
+    line.utc_second = utc.second;
+  }
 #else
   line.has_gps = false;
+  line.has_utc = false;
 #endif
 
   if (s_hit_count < kMaxHits) {
@@ -827,7 +854,9 @@ void paint_detail(bool force) {
     snprintf(val, sizeof(val), "%lu", (unsigned long)d.seen);
     chrome.paint_field(y, "Seen", val);
     y += kFieldH;
-    paint_location_section(y, d.has_gps, d.lat, d.lon, d.seen_ms);
+    paint_location_section(y, d.has_gps, d.lat, d.lon, d.has_utc, d.utc_year,
+                         d.utc_month, d.utc_day, d.utc_hour, d.utc_minute,
+                         d.utc_second);
     snprintf(val, sizeof(val), "%u / %u", (unsigned)(s_nearby_sel + 1),
              (unsigned)count);
     chrome.paint_field(y, "Index", val);
@@ -898,7 +927,9 @@ void paint_detail(bool force) {
     chrome.paint_field(y, "Mfgrid", val);
     y += kFieldH;
   }
-  paint_location_section(y, h.has_gps, h.lat, h.lon, h.ts_ms);
+  paint_location_section(y, h.has_gps, h.lat, h.lon, h.has_utc, h.utc_year,
+                         h.utc_month, h.utc_day, h.utc_hour, h.utc_minute,
+                         h.utc_second);
   snprintf(val, sizeof(val), "%u / %u", (unsigned)(s_list_sel + 1),
            (unsigned)s_hit_count);
   chrome.paint_field(y, "Index", val);

@@ -86,6 +86,22 @@ lines during a dump (not re-written to the card):
 | `sd dump /flock-0038.ndjson` | Stream a specific file |
 | `sd abort` | Cancel an in-progress dump |
 
+### Local time (GPS builds)
+
+GPS time is UTC. Set a fixed offset for the T-Deck **Seen at** display (saved
+across reboots):
+
+| Command | Action |
+|---|---|
+| `tz` | Show current offset |
+| `tz -300` | US Eastern standard (UTC−5) |
+| `tz -240` | US Eastern daylight (UTC−4) |
+| `tz -5h` | Same as `-300` (hours instead of minutes) |
+
+Or bake the default into `platformio.ini`: `-DFD_TZ_OFFSET_MINUTES=-300`.
+Automatic timezone from lat/lon needs an offline zone database (not included);
+DST is not handled — adjust `tz` when clocks change.
+
 From the host:
 
 ```bash

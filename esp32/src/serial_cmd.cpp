@@ -2,8 +2,14 @@
 
 #include <Arduino.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
+#include "serial_out.h"
+
+#ifdef FD_ENABLE_GPS
+#include "gps.h"
+#endif
 #ifdef FD_ENABLE_SD
 #include "sdlog.h"
 #endif
@@ -21,6 +27,47 @@ void handle_cmd(char *cmd) {
   if (*cmd == '\0') {
     return;
   }
+
+#ifdef FD_ENABLE_GPS
+  if (strncmp(cmd, "tz", 2) == 0 &&
+      (cmd[2] == '\0' || cmd[2] == ' ' || cmd[2] == '\t')) {
+    const char *arg = cmd + 2;
+    while (*arg == ' ' || *arg == '\t') {
+      arg++;
+    }
+    if (*arg == '\0') {
+      char msg[48];
+      snprintf(msg, sizeof(msg), "tz offset %d min (UTC%+d:%02u)",
+               (int)gps_tz_offset_min(),
+               (int)(gps_tz_offset_min() / 60),
+               (unsigned)(abs(gps_tz_offset_min()) % 60));
+      serial_out_info(msg);
+      return;
+    }
+    char *end = nullptr;
+    long value = strtol(arg, &end, 10);
+    if (end == arg) {
+      serial_out_info("tz usage: tz [-]minutes  (US Eastern: tz -300)");
+      return;
+    }
+    while (*end == ' ' || *end == '\t') {
+      end++;
+    }
+    if (*end == 'h' || *end == 'H') {
+      value *= 60L;
+    }
+    if (value < -840L || value > 840L) {
+      serial_out_info("tz out of range (-840..840 min)");
+      return;
+    }
+    gps_tz_set_offset_min((int16_t)value);
+    char msg[48];
+    snprintf(msg, sizeof(msg), "tz set to %ld min (UTC%+ld:%02lu)", value,
+             value / 60L, (unsigned long)(labs(value) % 60L));
+    serial_out_info(msg);
+    return;
+  }
+#endif
 
 #ifdef FD_ENABLE_SD
   if (strncmp(cmd, "sd ", 3) == 0) {

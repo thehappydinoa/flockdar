@@ -17,6 +17,9 @@
 #define TFT_RST -1
 #define TFT_BACKLIGHT_ON 1
 
+// No touch panel — T-Deck uses a trackball (silences TFT_eSPI TOUCH_CS warning).
+#define TOUCH_CS -1
+
 #define LOAD_GLCD
 #define LOAD_FONT2
 #define LOAD_FONT4

@@ -23,6 +23,13 @@ struct Entry {
   double lat;
   double lon;
   bool has_gps;
+  bool has_utc;
+  uint16_t utc_year;
+  uint8_t utc_month;
+  uint8_t utc_day;
+  uint8_t utc_hour;
+  uint8_t utc_minute;
+  uint8_t utc_second;
   uint16_t mfgrid;
   bool has_mfgrid;
 };
@@ -95,8 +102,19 @@ void note_device(const uint8_t mac[6], const char *kind, const char *label,
     s_devs[idx].lat = lat;
     s_devs[idx].lon = lon;
   }
+  GpsUtcTime utc{};
+  s_devs[idx].has_utc = gps_utc_now(&utc);
+  if (s_devs[idx].has_utc) {
+    s_devs[idx].utc_year = utc.year;
+    s_devs[idx].utc_month = utc.month;
+    s_devs[idx].utc_day = utc.day;
+    s_devs[idx].utc_hour = utc.hour;
+    s_devs[idx].utc_minute = utc.minute;
+    s_devs[idx].utc_second = utc.second;
+  }
 #else
   s_devs[idx].has_gps = false;
+  s_devs[idx].has_utc = false;
 #endif
   s_sort_dirty = true;
   portEXIT_CRITICAL(&s_mux);
@@ -180,6 +198,13 @@ bool rf_sightings_get(size_t index, RfDevice *out) {
   out->lat = e.lat;
   out->lon = e.lon;
   out->has_gps = e.has_gps;
+  out->has_utc = e.has_utc;
+  out->utc_year = e.utc_year;
+  out->utc_month = e.utc_month;
+  out->utc_day = e.utc_day;
+  out->utc_hour = e.utc_hour;
+  out->utc_minute = e.utc_minute;
+  out->utc_second = e.utc_second;
   out->mfgrid = e.mfgrid;
   out->has_mfgrid = e.has_mfgrid;
   portEXIT_CRITICAL(&s_mux);

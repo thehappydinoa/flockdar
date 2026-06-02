@@ -16,6 +16,13 @@ struct RfDevice {
   double lat;
   double lon;
   bool has_gps;
+  bool has_utc;
+  uint16_t utc_year;
+  uint8_t utc_month;
+  uint8_t utc_day;
+  uint8_t utc_hour;
+  uint8_t utc_minute;
+  uint8_t utc_second;
   uint16_t mfgrid;
   bool has_mfgrid;
 };

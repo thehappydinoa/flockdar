@@ -3,7 +3,9 @@
 #ifdef FD_ENABLE_GPS
 
 #include <Arduino.h>
+#include <Preferences.h>
 #include <TinyGPSPlus.h>
+#include <stdio.h>
 
 #include "protocol.h"
 #include "serial_out.h"
@@ -14,6 +16,7 @@ static uint32_t s_last_status = 0;
 static bool s_module_present = true;
 static bool s_last_fix = false;
 static uint32_t s_uart_baud = FD_GPS_BAUD;
+static int16_t s_tz_offset_min = FD_TZ_OFFSET_MINUTES;
 
 #if defined(FD_BOARD_TDECK)
 enum GpsChip { kGpsUnknown, kGpsL76k, kGpsUblox };
@@ -373,6 +376,14 @@ static bool tdeck_gps_init() {
 #endif
 
 void gps_begin() {
+  {
+    Preferences prefs;
+    if (prefs.begin("flockdar", true)) {
+      s_tz_offset_min =
+          (int16_t)prefs.getInt("tz_min", FD_TZ_OFFSET_MINUTES);
+      prefs.end();
+    }
+  }
 #if defined(FD_BOARD_TDECK)
   s_module_present = tdeck_gps_init();
   if (!s_module_present) {
@@ -490,6 +501,113 @@ bool gps_current(double *lat, double *lon, double *alt, double *accuracy) {
   if (accuracy) {
     *accuracy = s_gps.hdop.isValid() ? s_gps.hdop.hdop() * 2.5 : 0.0;
   }
+  return true;
+}
+
+int16_t gps_tz_offset_min() { return s_tz_offset_min; }
+
+void gps_tz_set_offset_min(int16_t minutes) {
+  s_tz_offset_min = minutes;
+  Preferences prefs;
+  if (prefs.begin("flockdar", false)) {
+    prefs.putInt("tz_min", (int32_t)minutes);
+    prefs.end();
+  }
+}
+
+static bool is_leap_year(uint16_t year) {
+  return (year % 4U == 0U && year % 100U != 0U) || (year % 400U == 0U);
+}
+
+static uint8_t days_in_month(uint16_t year, uint8_t month) {
+  static const uint8_t kDays[] = {31, 28, 31, 30, 31, 30,
+                                  31, 31, 30, 31, 30, 31};
+  if (month < 1U || month > 12U) {
+    return 30U;
+  }
+  if (month == 2U && is_leap_year(year)) {
+    return 29U;
+  }
+  return kDays[month - 1U];
+}
+
+static void add_calendar_days(uint16_t *year, uint8_t *month, uint8_t *day,
+                              int delta) {
+  int y = (int)(*year);
+  int m = (int)(*month);
+  int d = (int)(*day) + delta;
+  while (d < 1) {
+    m--;
+    if (m < 1) {
+      m = 12;
+      y--;
+    }
+    d += (int)days_in_month((uint16_t)y, (uint8_t)m);
+  }
+  while (d > (int)days_in_month((uint16_t)y, (uint8_t)m)) {
+    d -= (int)days_in_month((uint16_t)y, (uint8_t)m);
+    m++;
+    if (m > 12) {
+      m = 1;
+      y++;
+    }
+  }
+  *year = (uint16_t)y;
+  *month = (uint8_t)m;
+  *day = (uint8_t)d;
+}
+
+static void apply_tz_offset(uint16_t *year, uint8_t *month, uint8_t *day,
+                            uint8_t *hour, uint8_t *minute,
+                            int16_t offset_min) {
+  long total_min = (long)(*hour) * 60L + (long)(*minute) + (long)offset_min;
+  int day_delta = 0;
+  while (total_min < 0) {
+    total_min += 1440L;
+    day_delta--;
+  }
+  while (total_min >= 1440L) {
+    total_min -= 1440L;
+    day_delta++;
+  }
+  *hour = (uint8_t)(total_min / 60L);
+  *minute = (uint8_t)(total_min % 60L);
+  if (day_delta != 0) {
+    add_calendar_days(year, month, day, day_delta);
+  }
+}
+
+void gps_format_local_time(bool has_utc, uint16_t year, uint8_t month,
+                           uint8_t day, uint8_t hour, uint8_t minute,
+                           uint8_t second, char *buf, size_t bufsz) {
+  if (!buf || bufsz == 0) {
+    return;
+  }
+  if (!has_utc) {
+    strncpy(buf, "waiting for GPS", bufsz - 1);
+    buf[bufsz - 1] = '\0';
+    return;
+  }
+  apply_tz_offset(&year, &month, &day, &hour, &minute, s_tz_offset_min);
+  snprintf(buf, bufsz, "%02u/%02u/%04u %02u:%02u:%02u", (unsigned)month,
+           (unsigned)day, (unsigned)year, (unsigned)hour, (unsigned)minute,
+           (unsigned)second);
+  (void)second;
+}
+
+bool gps_utc_now(GpsUtcTime *out) {
+  if (!out) {
+    return false;
+  }
+  if (!s_gps.date.isValid() || !s_gps.time.isValid()) {
+    return false;
+  }
+  out->year = s_gps.date.year();
+  out->month = s_gps.date.month();
+  out->day = s_gps.date.day();
+  out->hour = s_gps.time.hour();
+  out->minute = s_gps.time.minute();
+  out->second = s_gps.time.second();
   return true;
 }
 
