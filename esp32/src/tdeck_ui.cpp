@@ -109,6 +109,10 @@ struct HitLine {
   bool has_name;
   bool has_channel;
   bool has_mfgrid;
+  uint32_t ts_ms;
+  double lat;
+  double lon;
+  bool has_gps;
 };
 
 enum class DetailSource : uint8_t { kFlock = 0, kNearby = 1 };
@@ -209,18 +213,72 @@ void kb_drain() {
 const char *screen_title(Screen s) {
   switch (s) {
   case Screen::kList:
-    return "HITS";
+  case Screen::kNearby:
+    return "FLOCKDAR";
   case Screen::kDetail:
     return "DETAIL";
   case Screen::kHelp:
     return "HELP";
-  case Screen::kNearby:
-    return "NEARBY";
   case Screen::kSd:
     return "SD CARD";
   default:
     return "FLOCKDAR";
   }
+}
+
+void format_seen_time(uint32_t ts_ms, char *buf, size_t bufsz) {
+  const uint32_t sec = ts_ms / 1000U;
+  const uint32_t h = sec / 3600U;
+  const uint32_t m = (sec % 3600U) / 60U;
+  const uint32_t s = sec % 60U;
+  if (h > 0U) {
+    snprintf(buf, bufsz, "%uh %02um %02us", (unsigned)h, (unsigned)m,
+             (unsigned)s);
+  } else {
+    snprintf(buf, bufsz, "%um %02us", (unsigned)m, (unsigned)s);
+  }
+}
+
+void paint_location_section(int &y, bool has_gps, double lat, double lon,
+                            uint32_t ts_ms) {
+  char val[32];
+  chrome.paint_section_label(y, "LOCATION");
+  y += kSectionH + 2;
+#ifdef FD_ENABLE_GPS
+  if (has_gps) {
+    snprintf(val, sizeof(val), "%.5f,%.5f", lat, lon);
+    chrome.paint_field(y, "Position", val);
+  } else {
+    chrome.paint_field(y, "Position", "no fix");
+  }
+#else
+  chrome.paint_field(y, "Position", "no GPS");
+#endif
+  y += kFieldH;
+  format_seen_time(ts_ms, val, sizeof(val));
+  chrome.paint_field(y, "Seen at", val);
+  y += kFieldH;
+}
+
+static DetKind hit_line_kind(const HitLine &h) {
+  return (strcmp(h.kind, "ble") == 0) ? DET_BLE : DET_WIFI;
+}
+
+void paint_match_why(int &y, DetKind kind, const char *method,
+                     const uint8_t *mac, bool has_mac, const char *name,
+                     bool has_name, uint16_t mfgrid, bool has_mfgrid) {
+  char summary[96];
+  flock_match_summary(kind, method, mac, has_mac, name, has_name, mfgrid,
+                      has_mfgrid, summary, sizeof(summary));
+  if (!summary[0]) {
+    return;
+  }
+  chrome.paint_text(4, y, "Why", kFontLabel, kTextMuted, kBg);
+  y += kFieldH;
+  const int wrap_w = tft.width() - 8;
+  y = chrome.paint_wrapped_text(4, y, wrap_w, summary, kFontLabel, kText, kBg,
+                               2, kFieldH);
+  y += 2;
 }
 
 void tdeck_set_brightness(uint8_t value) {
@@ -284,6 +342,20 @@ void push_hit(const Detection &d) {
   } else {
     line.name[0] = '\0';
   }
+  line.ts_ms = d.ts_ms;
+#ifdef FD_ENABLE_GPS
+  double lat = 0.0;
+  double lon = 0.0;
+  double alt = 0.0;
+  double accuracy = 0.0;
+  line.has_gps = gps_current(&lat, &lon, &alt, &accuracy);
+  if (line.has_gps) {
+    line.lat = lat;
+    line.lon = lon;
+  }
+#else
+  line.has_gps = false;
+#endif
 
   if (s_hit_count < kMaxHits) {
     s_hits[s_hit_count++] = line;
@@ -755,6 +827,7 @@ void paint_detail(bool force) {
     snprintf(val, sizeof(val), "%lu", (unsigned long)d.seen);
     chrome.paint_field(y, "Seen", val);
     y += kFieldH;
+    paint_location_section(y, d.has_gps, d.lat, d.lon, d.seen_ms);
     snprintf(val, sizeof(val), "%u / %u", (unsigned)(s_nearby_sel + 1),
              (unsigned)count);
     chrome.paint_field(y, "Index", val);
@@ -802,6 +875,8 @@ void paint_detail(bool force) {
   y += kFieldH;
   chrome.paint_field(y, "Method", flock_method_short(h.method));
   y += kFieldH;
+  paint_match_why(y, hit_line_kind(h), h.method, h.mac_raw, h.has_mac, h.name,
+                  h.has_name, h.mfgrid, h.has_mfgrid);
   chrome.paint_field(y, "MAC", h.mac);
   y += kFieldH;
   chrome.paint_section_label(y, "RF");
@@ -823,6 +898,7 @@ void paint_detail(bool force) {
     chrome.paint_field(y, "Mfgrid", val);
     y += kFieldH;
   }
+  paint_location_section(y, h.has_gps, h.lat, h.lon, h.ts_ms);
   snprintf(val, sizeof(val), "%u / %u", (unsigned)(s_list_sel + 1),
            (unsigned)s_hit_count);
   chrome.paint_field(y, "Index", val);

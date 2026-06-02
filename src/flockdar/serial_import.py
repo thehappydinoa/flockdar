@@ -218,8 +218,8 @@ def monitor_stream(lines: Iterable[str]) -> None:
 
 def iter_records(
     lines: Iterable[str], key: bytes, verify: bool = True
-) -> Iterator[tuple[Record, str]]:
-    """Parse a line stream, verify signatures, track GPS, yield (record, method).
+) -> Iterator[tuple[Record, str, str]]:
+    """Parse a line stream, verify signatures, track GPS, yield (record, method, detail).
 
     `gps` events update the running position; `info` and unsigned/forged
     detection lines are skipped.
@@ -244,16 +244,18 @@ def iter_records(
             continue
         mapped = line_to_record(obj, pos)
         if mapped:
-            yield mapped
+            rec, method = mapped
+            detail = str(obj.get("detail", "") or method)
+            yield rec, method, detail
 
 
 def iter_hits(lines: Iterable[str], key: bytes, verify: bool = True) -> Iterator[detect.Hit]:
     """Yield a Hit per detection line (no dedup — see merge_hits)."""
-    for rec, method in iter_records(lines, key, verify=verify):
+    for rec, method, detail in iter_records(lines, key, verify=verify):
         hit = detect.analyze(**rec)
         if hit:
             if method:
-                hit.add_signal("ESP32_LIVE", method)
+                hit.add_signal("ESP32_LIVE", detail)
             yield hit
 
 
@@ -759,12 +761,12 @@ def main(argv: list[str] | None = None) -> int:
     records: list[Record] = []
     interrupted = False
     try:
-        for rec, method in iter_records(lines, key, verify=verify):
+        for rec, method, detail in iter_records(lines, key, verify=verify):
             records.append(rec)
             hit = detect.analyze(**rec)
             if hit:
                 if method:
-                    hit.add_signal("ESP32_LIVE", method)
+                    hit.add_signal("ESP32_LIVE", detail)
                 print(_summary(hit, method))
     except KeyboardInterrupt:
         interrupted = True

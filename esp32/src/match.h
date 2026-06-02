@@ -5,6 +5,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "protocol.h"
+
 // True if the first three octets of mac are a known Flock OUI.
 bool oui_is_flock(const uint8_t mac[6]);
 
@@ -27,3 +29,13 @@ uint8_t flock_det_confidence(const char *kind, const char *method,
 const char *flock_confidence_label(uint8_t level);
 bool flock_method_is_probe(const char *method);
 const char *flock_method_short(const char *method);
+// Fill signal (e.g. CHIP_OUI) and human-readable detail for JSON / UI.
+void flock_match_labels(DetKind kind, const char *method, const uint8_t *mac,
+                        bool has_mac, const char *name, bool has_name,
+                        uint16_t mfgrid, bool has_mfgrid, char *signal_out,
+                        size_t signal_sz, char *detail_out, size_t detail_sz);
+// Short UI-friendly explanation (one or two lines on the T-Deck detail view).
+void flock_match_summary(DetKind kind, const char *method, const uint8_t *mac,
+                         bool has_mac, const char *name, bool has_name,
+                         uint16_t mfgrid, bool has_mfgrid, char *summary_out,
+                         size_t summary_sz);

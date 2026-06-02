@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include <string.h>
 
+#ifdef FD_ENABLE_GPS
+#include "gps.h"
+#endif
+
 namespace {
 
 constexpr size_t kMaxDevices = 48;
@@ -16,6 +20,9 @@ struct Entry {
   uint8_t channel;
   uint32_t seen;
   uint32_t last_ms;
+  double lat;
+  double lon;
+  bool has_gps;
   uint16_t mfgrid;
   bool has_mfgrid;
 };
@@ -78,6 +85,19 @@ void note_device(const uint8_t mac[6], const char *kind, const char *label,
   }
   s_devs[idx].rssi = rssi;
   s_devs[idx].last_ms = millis();
+#ifdef FD_ENABLE_GPS
+  double lat = 0.0;
+  double lon = 0.0;
+  double alt = 0.0;
+  double accuracy = 0.0;
+  s_devs[idx].has_gps = gps_current(&lat, &lon, &alt, &accuracy);
+  if (s_devs[idx].has_gps) {
+    s_devs[idx].lat = lat;
+    s_devs[idx].lon = lon;
+  }
+#else
+  s_devs[idx].has_gps = false;
+#endif
   s_sort_dirty = true;
   portEXIT_CRITICAL(&s_mux);
 }
@@ -156,6 +176,10 @@ bool rf_sightings_get(size_t index, RfDevice *out) {
   out->rssi = e.rssi;
   out->channel = e.channel;
   out->seen = e.seen;
+  out->seen_ms = e.last_ms;
+  out->lat = e.lat;
+  out->lon = e.lon;
+  out->has_gps = e.has_gps;
   out->mfgrid = e.mfgrid;
   out->has_mfgrid = e.has_mfgrid;
   portEXIT_CRITICAL(&s_mux);

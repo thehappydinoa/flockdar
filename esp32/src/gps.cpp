@@ -10,9 +10,9 @@
 
 static TinyGPSPlus s_gps;
 static HardwareSerial s_serial(FD_GPS_UART);
-static uint32_t s_last_emit = 0;
 static uint32_t s_last_status = 0;
 static bool s_module_present = true;
+static bool s_last_fix = false;
 static uint32_t s_uart_baud = FD_GPS_BAUD;
 
 #if defined(FD_BOARD_TDECK)
@@ -375,6 +375,10 @@ static bool tdeck_gps_init() {
 void gps_begin() {
 #if defined(FD_BOARD_TDECK)
   s_module_present = tdeck_gps_init();
+  if (!s_module_present) {
+    serial_out_info(
+        "gps init failed - left UART @38400; try outdoors or gps tap");
+  }
 #else
   s_serial.begin(FD_GPS_BAUD, SERIAL_8N1, FD_GPS_RX_PIN, FD_GPS_TX_PIN);
   s_uart_baud = FD_GPS_BAUD;
@@ -383,17 +387,26 @@ void gps_begin() {
   gps_serial_status(true);
 }
 
+static void gps_emit_fix(const Detection &d) {
+  if (!g_det_queue) return;
+  xQueueSend(g_det_queue, &d, 0);
+}
+
 void gps_serial_status(bool force) {
   uint32_t now = millis();
-  if (!force && now - s_last_status < FD_GPS_STATUS_INTERVAL_MS) {
-    return;
-  }
-  s_last_status = now;
-
   bool fix = false;
   uint32_t nmea_chars = 0;
   uint8_t sats = 0;
   gps_status(&fix, nullptr, nullptr, &nmea_chars, &sats);
+
+  const bool fix_changed = fix != s_last_fix;
+  const bool acquiring = !fix;
+  if (!force && !fix_changed &&
+      !(acquiring && now - s_last_status >= FD_GPS_STATUS_INTERVAL_MS)) {
+    return;
+  }
+  s_last_status = now;
+
 #if defined(FD_BOARD_TDECK)
   const char *chip = chip_label();
 #else
@@ -422,22 +435,24 @@ void gps_loop() {
   }
 
   gps_note_runtime_chip();
+
+  const bool fix = s_gps.location.isValid();
+  const bool fix_changed = fix != s_last_fix;
+
   gps_serial_status(false);
 
-  uint32_t now = millis();
-  if (now - s_last_emit < FD_GPS_EMIT_INTERVAL_MS) return;
-  if (!s_gps.location.isValid()) return;
-  s_last_emit = now;
+  if (fix && fix_changed) {
+    Detection d;
+    det_init(d, DET_GPS);
+    d.lat = s_gps.location.lat();
+    d.lon = s_gps.location.lng();
+    d.alt = s_gps.altitude.isValid() ? s_gps.altitude.meters() : 0.0;
+    d.accuracy = s_gps.hdop.isValid() ? s_gps.hdop.hdop() * 2.5 : 0.0;
+    d.ts_ms = millis();
+    gps_emit_fix(d);
+  }
 
-  if (!g_det_queue) return;
-  Detection d;
-  det_init(d, DET_GPS);
-  d.lat = s_gps.location.lat();
-  d.lon = s_gps.location.lng();
-  d.alt = s_gps.altitude.isValid() ? s_gps.altitude.meters() : 0.0;
-  d.accuracy = s_gps.hdop.isValid() ? s_gps.hdop.hdop() * 2.5 : 0.0;
-  d.ts_ms = now;
-  xQueueSend(g_det_queue, &d, 0);
+  s_last_fix = fix;
 }
 
 void gps_status(bool *fix, double *lat, double *lon, uint32_t *nmea_chars,

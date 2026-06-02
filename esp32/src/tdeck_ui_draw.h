@@ -27,6 +27,10 @@ class TdeckChrome {
   void paint_field(int y, const char *label, const char *value);
   void paint_field_icon(int y, StatusIcon icon, const char *label,
                         const char *value);
+  // Word-wrap text; returns y below the last painted line.
+  int paint_wrapped_text(int x, int y, int max_w, const char *text,
+                         uint8_t font, uint16_t fg, uint16_t bg,
+                         int max_lines, int line_h);
   // hotkey: letter to underline in label (0 = none).
   void paint_soft_keys(const char *left, char left_key, const char *center,
                        char center_key, const char *right, char right_key);

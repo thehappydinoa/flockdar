@@ -94,12 +94,14 @@ void TdeckChrome::paint_title_bar(const char *title, int page_idx,
 
   tft_.setTextColor(kText, bar_bg);
   tft_.setTextDatum(TL_DATUM);
-  int title_x = 4;
-  if (title && strcmp(title, "FLOCKDAR") == 0) {
+  if (page_idx >= 0) {
     draw_flockdar_logo(tft_, 4, 6, kFlock, bar_bg);
-    title_x = 20;
   }
-  tft_.drawString(title, title_x, 6, kFontTitle);
+  if (page_idx <= 0 && title && title[0]) {
+    tft_.drawString(title, 20, 6, kFontTitle);
+  } else if (page_idx < 0 && title && title[0]) {
+    tft_.drawString(title, 4, 6, kFontTitle);
+  }
 
   const char *tab = page_tab_label(page_idx);
   if (tab) {
@@ -226,6 +228,64 @@ void TdeckChrome::paint_field_icon(int y, StatusIcon icon, const char *label,
   tft_.setTextDatum(TR_DATUM);
   tft_.drawString(value, tft_.width() - 4, y, kFontValue);
   tft_.setTextDatum(TL_DATUM);
+}
+
+int TdeckChrome::paint_wrapped_text(int x, int y, int max_w, const char *text,
+                                    uint8_t font, uint16_t fg, uint16_t bg,
+                                    int max_lines, int line_h) {
+  if (!text || !text[0] || max_lines <= 0 || max_w <= 0) {
+    return y;
+  }
+
+  tft_.setTextFont(font);
+  int lines = 0;
+  const char *start = text;
+  while (*start && lines < max_lines) {
+    while (*start == ' ') {
+      start++;
+    }
+    if (!*start) {
+      break;
+    }
+
+    const char *cursor = start;
+    const char *break_at = start;
+    while (*cursor) {
+      char trial[72];
+      size_t len = (size_t)(cursor - start + 1);
+      if (len >= sizeof(trial)) {
+        len = sizeof(trial) - 1;
+      }
+      memcpy(trial, start, len);
+      trial[len] = '\0';
+      if (tft_.textWidth(trial, font) > max_w && cursor > start) {
+        break;
+      }
+      if (*cursor == ' ') {
+        break_at = cursor + 1;
+      }
+      cursor++;
+    }
+
+    if (cursor == start) {
+      cursor = start + 1;
+    } else if (*cursor && break_at > start) {
+      cursor = break_at;
+    }
+
+    char line[72];
+    size_t len = (size_t)(cursor - start);
+    if (len >= sizeof(line)) {
+      len = sizeof(line) - 1;
+    }
+    memcpy(line, start, len);
+    line[len] = '\0';
+    paint_text(x, y, line, font, fg, bg);
+    y += line_h;
+    lines++;
+    start = cursor;
+  }
+  return y;
 }
 
 void TdeckChrome::paint_chrome_bottom() {

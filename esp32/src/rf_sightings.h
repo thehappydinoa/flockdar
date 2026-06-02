@@ -12,6 +12,10 @@ struct RfDevice {
   int rssi;
   uint8_t channel;
   uint32_t seen;
+  uint32_t seen_ms;  // millis() at last sighting
+  double lat;
+  double lon;
+  bool has_gps;
   uint16_t mfgrid;
   bool has_mfgrid;
 };

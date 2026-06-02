@@ -98,7 +98,7 @@ class TestIterStream:
         ]
         recs = list(si.iter_records(lines, KEY))
         assert len(recs) == 1
-        rec, _ = recs[0]
+        rec, _, _ = recs[0]
         assert rec["lat"] == EX_LAT and rec["lon"] == EX_LON
 
     def test_forged_line_skipped(self) -> None:
@@ -145,7 +145,7 @@ class TestLogAndSqlite:
 
         # Records -> WiGLE-format sqlite the TUI/detect can re-open.
         out = tmp_path / "out.sqlite"
-        recs = [rec for rec, _ in si.iter_records(si.log_lines(log), KEY)]
+        recs = [rec for rec, _, _ in si.iter_records(si.log_lines(log), KEY)]
         assert si.write_sqlite(recs, str(out)) == 2
 
         reread, scanned = detect.run_detection(out)

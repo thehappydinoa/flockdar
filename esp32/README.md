@@ -68,8 +68,9 @@ Newline-delimited JSON at 115200 baud. Each line is one event. Example
 ```
 
 Boot emits an `info` line (with `fw`) and an immediate `gps_status` snapshot.
-While acquiring a fix, `gps_status` repeats every 30 s on serial
-(`uv run flockdar-ingest COM3 --monitor` on Windows).
+While acquiring a fix, `gps_status` repeats every 30 s. Once a fix is held,
+`gps_status` and standalone `gps` position lines are suppressed until the fix
+is lost (then status resumes while re-acquiring).
 
 ### SD card over serial
 
@@ -111,6 +112,8 @@ Fields:
 | `fw` | Firmware version string (`info` and `gps_status` lines) |
 | `type` | `wifi`, `ble`, `gps`, `gps_status`, or `info` |
 | `method` | `probe_request`, `addr1`, `addr2`, `name_match`, `mfgrid` |
+| `signal` | Detection signal label (e.g. `CHIP_OUI`, `WILDCARD_PROBE`, `BLE_NAME`) |
+| `detail` | Human-readable explanation of why the frame matched |
 | `mac` | Lowercase colon-separated MAC address |
 | `rssi` | Signal strength in dBm |
 | `channel` | 802.11 channel (wifi) |

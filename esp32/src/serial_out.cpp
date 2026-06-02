@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "config.h"
+#include "match.h"
 #include "signing.h"
 
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
@@ -37,7 +38,7 @@ static void json_escape(const char *in, char *out, size_t outsz) {
     else if (c == '\n') esc = "\\n";
     else if (c == '\r') esc = "\\r";
     else if (c == '\t') esc = "\\t";
-    else if (c < 0x20 || c >= 0x7f) {
+    else if (c < 0x20) {
       snprintf(u, sizeof(u), "\\u%04x", c);
       esc = u;
     } else {
@@ -135,6 +136,21 @@ void serial_out_emit(const Detection &d) {
   }
   if (d.has_channel) {
     n += snprintf(body + n, sizeof(body) - n, ",\"channel\":%u", d.channel);
+  }
+  {
+    char signal[24];
+    char detail[128];
+    char esc_detail[256];
+    flock_match_labels(d.kind, d.method, d.mac, d.has_mac, d.name, d.has_name,
+                       d.mfgrid, d.has_mfgrid, signal, sizeof(signal), detail,
+                       sizeof(detail));
+    if (signal[0]) {
+      n += snprintf(body + n, sizeof(body) - n, ",\"signal\":\"%s\"", signal);
+    }
+    if (detail[0]) {
+      json_escape(detail, esc_detail, sizeof(esc_detail));
+      n += snprintf(body + n, sizeof(body) - n, ",\"detail\":\"%s\"", esc_detail);
+    }
   }
 #ifdef FD_ENABLE_GPS
   double lat = 0.0;
