@@ -67,6 +67,20 @@ int find_oldest_slot() {
 void note_device(const uint8_t mac[6], const char *kind, const char *label,
                  int rssi, uint8_t channel, uint16_t mfgrid = 0,
                  bool has_mfgrid = false) {
+  // Snapshot GPS coordinates BEFORE acquiring the spinlock to avoid nesting
+  // the GPS spinlock (portENTER_CRITICAL) inside the rf_sightings spinlock
+  // (portENTER_CRITICAL_ISR). Both are non-reentrant per-CPU spinlocks and
+  // nesting them risks a deadlock if the acquisition order is ever reversed.
+#ifdef FD_ENABLE_GPS
+  double lat = 0.0;
+  double lon = 0.0;
+  double alt = 0.0;
+  double accuracy = 0.0;
+  const bool has_gps = gps_current(&lat, &lon, &alt, &accuracy);
+  GpsUtcTime utc{};
+  const bool has_utc = gps_utc_now(&utc);
+#endif
+
   portENTER_CRITICAL_ISR(&s_mux);
   s_events++;
   int idx = find_mac(mac);
@@ -93,18 +107,13 @@ void note_device(const uint8_t mac[6], const char *kind, const char *label,
   s_devs[idx].rssi = rssi;
   s_devs[idx].last_ms = millis();
 #ifdef FD_ENABLE_GPS
-  double lat = 0.0;
-  double lon = 0.0;
-  double alt = 0.0;
-  double accuracy = 0.0;
-  s_devs[idx].has_gps = gps_current(&lat, &lon, &alt, &accuracy);
-  if (s_devs[idx].has_gps) {
+  s_devs[idx].has_gps = has_gps;
+  if (has_gps) {
     s_devs[idx].lat = lat;
     s_devs[idx].lon = lon;
   }
-  GpsUtcTime utc{};
-  s_devs[idx].has_utc = gps_utc_now(&utc);
-  if (s_devs[idx].has_utc) {
+  s_devs[idx].has_utc = has_utc;
+  if (has_utc) {
     s_devs[idx].utc_year = utc.year;
     s_devs[idx].utc_month = utc.month;
     s_devs[idx].utc_day = utc.day;

@@ -8,6 +8,8 @@
 #include "protocol.h"
 
 // True if the first three octets of mac are a known Flock OUI.
+// Placed in IRAM (see match.cpp) to stay accessible when the flash cache is
+// briefly stalled by the WiFi promiscuous callback.
 bool oui_is_flock(const uint8_t mac[6]);
 
 // True if cid is a known Flock BLE manufacturer (company) ID.

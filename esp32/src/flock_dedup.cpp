@@ -20,7 +20,7 @@ struct Slot {
 Slot s_slots[kSlots];
 portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
-int find_slot(const uint8_t mac[6], const char *method) {
+IRAM_ATTR int find_slot(const uint8_t mac[6], const char *method) {
   for (size_t i = 0; i < kSlots; i++) {
     if (!s_slots[i].used) {
       continue;
@@ -33,7 +33,7 @@ int find_slot(const uint8_t mac[6], const char *method) {
   return -1;
 }
 
-int alloc_slot() {
+IRAM_ATTR int alloc_slot() {
   for (size_t i = 0; i < kSlots; i++) {
     if (!s_slots[i].used) {
       return (int)i;
@@ -52,14 +52,15 @@ int alloc_slot() {
 
 }  // namespace
 
-bool flock_dedup_allow(const uint8_t mac[6], const char *method) {
+bool IRAM_ATTR flock_dedup_allow(const uint8_t mac[6], const char *method) {
   if (!mac || !method) {
     return true;
   }
   const uint32_t now = millis();
-  // portENTER_CRITICAL_ISR is safe from both task and ISR context; the WiFi
-  // promiscuous callback calls flock_dedup_allow() from an ISR-level context,
-  // so portENTER_CRITICAL (which asserts !ISR) would panic.
+  // portENTER_CRITICAL_ISR is safe from both task and (true) ISR context.
+  // The WiFi promiscuous callback runs in a WiFi task context but shares this
+  // function with callers that might run from interrupt level, so the ISR
+  // variant is used to be safe in both scenarios.
   portENTER_CRITICAL_ISR(&s_mux);
   const int hit = find_slot(mac, method);
   if (hit >= 0) {

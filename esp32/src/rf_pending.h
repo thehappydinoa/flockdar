@@ -9,6 +9,9 @@
 void rf_pending_begin();
 void rf_pending_drain();
 
+// Called from the WiFi promiscuous callback (WiFi task context).
+// Placed in IRAM (see rf_pending.cpp) to stay resident when the flash cache
+// is briefly stalled.
 void rf_pending_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel,
                           const char *ssid = nullptr);
 void rf_pending_note_ble(const uint8_t mac[6], const char *name, int rssi,

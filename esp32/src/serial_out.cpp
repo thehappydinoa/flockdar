@@ -105,7 +105,7 @@ void serial_out_usb_write(const uint8_t *data, size_t len) {
 
 static void serial_usb_write_line(const char *line) {
   const size_t n = strlen(line);
-  char buf[544];
+  char buf[800];  // large enough for the biggest signed detection line (~784)
   if (n + 1 <= sizeof(buf)) {
     if (n > 0) {
       memcpy(buf, line, n);
@@ -186,7 +186,13 @@ void serial_out_gps_status(uint32_t nmea_chars, uint8_t sats, bool fix,
 #endif
 
 void serial_out_emit(const Detection &d) {
-  char body[448];  // headroom for escaped name + GPS fields
+  // Maximum body length analysis:
+  //   prefix (~70) + oui(18) + name(~195 worst-case escaped) + mfgrid(16)
+  //   + rssi(13) + channel(14) + signal(27) + detail(~267 escaped)
+  //   + lat+lon(35) + accuracy(20) + ts_ms(22) ≈ 697 bytes + NUL.
+  // line[] adds ,"sig":"xxxxxxxx"} (15 chars) so needs body_n + 14 bytes.
+  // Keep body and line large enough that snprintf never truncates.
+  char body[768];
   int n = 0;
 
   if (d.kind == DET_GPS) {
@@ -262,7 +268,9 @@ void serial_out_emit(const Detection &d) {
   char sig[9];
   hmac_sig(body, (size_t)n, sig);
 
-  char line[512];
+  // line = body minus trailing '}' + ,"sig":"xxxxxxxx"} + NUL
+  // = (n-1) + 15 + 1 = n + 15 bytes needed; body[768] + 15 < 784.
+  char line[784];
   // %.*s copies body without its trailing '}'.
   snprintf(line, sizeof(line), "%.*s,\"sig\":\"%s\"}", n - 1, body, sig);
   output_line(line);

@@ -29,9 +29,15 @@ static bool s_suspended = false;
 // 802.11 management frame subtypes we care about.
 static const uint8_t SUBTYPE_PROBE_REQ = 0x04;
 
-static void enqueue_wifi(const char *method, const uint8_t mac[6], int rssi,
-                         uint8_t channel) {
+// enqueue_wifi is called exclusively from promisc_cb (WiFi task context).
+// IRAM_ATTR keeps the function resident in RAM so it remains accessible when
+// the flash instruction cache is briefly disabled (e.g. during flash writes).
+static IRAM_ATTR void enqueue_wifi(const char *method, const uint8_t mac[6],
+                                   int rssi, uint8_t channel) {
   if (!flock_dedup_allow(mac, method)) {
+    return;
+  }
+  if (!g_det_queue) {
     return;
   }
   Detection d;
@@ -45,7 +51,9 @@ static void enqueue_wifi(const char *method, const uint8_t mac[6], int rssi,
   d.channel = channel;
   d.has_channel = true;
   d.ts_ms = millis();
-  stats_queue_send(d);
+  if (xQueueSend(g_det_queue, &d, 0) != pdTRUE) {
+    stats_note_queue_drop();
+  }
 }
 
 // Extract SSID from 802.11 Information Elements starting at ie_start.

@@ -9,6 +9,8 @@
 void stats_begin();
 void stats_loop();
 
+// Placed in IRAM (see stats.cpp) — called from the WiFi promiscuous callback
+// path; must stay accessible when the flash cache is briefly stalled.
 void stats_note_queue_drop();
 void stats_note_emit();
 

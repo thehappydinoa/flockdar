@@ -619,7 +619,6 @@ void gps_format_local_time(bool has_utc, uint16_t year, uint8_t month,
   snprintf(buf, bufsz, "%02u/%02u/%04u %02u:%02u:%02u", (unsigned)month,
            (unsigned)day, (unsigned)year, (unsigned)hour, (unsigned)minute,
            (unsigned)second);
-  (void)second;
 }
 
 bool gps_utc_now(GpsUtcTime *out) {

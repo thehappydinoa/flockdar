@@ -34,6 +34,9 @@ void rf_pending_begin() {
   }
 }
 
+// enqueue_rec is called from both WiFi task context (promisc_cb path via
+// rf_pending_note_wifi) and BLE task context (rf_pending_note_ble).
+// xQueueSend with timeout=0 is correct for both.
 static void enqueue_rec(const RfPendingRec &rec) {
   if (!s_rf_queue) {
     return;
@@ -41,8 +44,10 @@ static void enqueue_rec(const RfPendingRec &rec) {
   (void)xQueueSend(s_rf_queue, &rec, 0);
 }
 
-void rf_pending_note_wifi(const uint8_t mac[6], int rssi, uint8_t channel,
-                          const char *ssid) {
+// Called from promisc_cb (WiFi task context) — IRAM_ATTR keeps the function
+// resident in RAM when the flash cache is briefly stalled.
+void IRAM_ATTR rf_pending_note_wifi(const uint8_t mac[6], int rssi,
+                                    uint8_t channel, const char *ssid) {
   RfPendingRec rec{};
   rec.kind = kWifi;
   memcpy(rec.mac, mac, 6);

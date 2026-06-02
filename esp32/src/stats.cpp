@@ -39,7 +39,7 @@ void stats_loop() {
 #endif
 }
 
-void stats_note_queue_drop() { s_queue_drops++; }
+void IRAM_ATTR stats_note_queue_drop() { s_queue_drops++; }
 
 void stats_note_emit() { s_emits++; }
 

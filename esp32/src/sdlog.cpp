@@ -149,9 +149,12 @@ void sdlog_get_status(SdlogStatus *out) {
   out->miso_level = s_miso_level;
   strncpy(out->card_type_name, card_type_name(s_card_type),
           sizeof(out->card_type_name) - 1);
+  out->card_type_name[sizeof(out->card_type_name) - 1] = '\0';
   strncpy(out->last_err, s_last_err, sizeof(out->last_err) - 1);
+  out->last_err[sizeof(out->last_err) - 1] = '\0';
   if (s_ok) {
     strncpy(out->path, s_path, sizeof(out->path) - 1);
+    out->path[sizeof(out->path) - 1] = '\0';
   } else {
     out->path[0] = '\0';
   }
@@ -425,7 +428,7 @@ bool sdlog_dump_poll() {
       flush_batch();
     }
     if (len + 1 > sizeof(batch)) {
-      char buf[520];
+      char buf[816];  // larger than the maximum line[800] + newline
       if (len + 1 <= sizeof(buf)) {
         memcpy(buf, line, len);
         buf[len] = '\n';
@@ -442,7 +445,8 @@ bool sdlog_dump_poll() {
     batch[batch_n++] = '\n';
   };
 
-  static char line[512];
+  // Must be large enough for the longest signed detection line (~784 bytes).
+  static char line[800];
   const uint32_t until = millis() + 40;
   while (millis() < until && s_dump_file.available()) {
     size_t n = 0;

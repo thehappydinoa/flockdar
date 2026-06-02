@@ -8,7 +8,7 @@
 #include "vendor_list.h"  // generated: VENDOR_OUIS, BLE_VENDORS
 #include "protocol.h"
 
-bool oui_is_flock(const uint8_t mac[6]) {
+bool IRAM_ATTR oui_is_flock(const uint8_t mac[6]) {
   for (size_t i = 0; i < FLOCK_OUI_COUNT; i++) {
     if (mac[0] == FLOCK_OUIS[i][0] && mac[1] == FLOCK_OUIS[i][1] &&
         mac[2] == FLOCK_OUIS[i][2]) {
