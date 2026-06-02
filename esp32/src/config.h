@@ -29,6 +29,13 @@
 #define FD_FW_VERSION "0.3.7"
 #endif
 
+// Periodic stats heartbeat interval (ms). Emits a stats JSON line so a host
+// monitoring serial output can confirm the device is alive and scanning.
+// Set to 0 to disable. Override via -DFD_STATS_HEARTBEAT_MS=<ms>.
+#ifndef FD_STATS_HEARTBEAT_MS
+#define FD_STATS_HEARTBEAT_MS 30000
+#endif
+
 // HMAC-SHA256 key shared with the Python receiver so it can reject forged or
 // corrupted frames. Override via build_flags; this default is for bench use.
 #ifndef FD_HMAC_KEY

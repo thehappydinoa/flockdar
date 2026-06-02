@@ -62,39 +62,15 @@ static void json_escape(const char *in, char *out, size_t outsz) {
 
 static portMUX_TYPE s_serial_mux = portMUX_INITIALIZER_UNLOCKED;
 
-// All USB serial output must hold this lock so two Serial.write calls from
-// different code paths cannot interleave (e.g. gps_status + stats response).
-static void serial_usb_write(const uint8_t *data, size_t len) {
-  if (len == 0) {
-    return;
-  }
-  portENTER_CRITICAL(&s_serial_mux);
-  Serial.write(data, len);
-  portEXIT_CRITICAL(&s_serial_mux);
-}
-
-static void serial_usb_write_line(const char *line) {
-  const size_t n = strlen(line);
-  char buf[544];
-  if (n + 1 <= sizeof(buf)) {
-    if (n > 0) {
-      memcpy(buf, line, n);
-    }
-    buf[n] = '\n';
-    serial_usb_write((const uint8_t *)buf, n + 1);
-    return;
-  }
-  portENTER_CRITICAL(&s_serial_mux);
-  Serial.write((const uint8_t *)line, n);
-  Serial.write('\n');
-  portEXIT_CRITICAL(&s_serial_mux);
-}
-
 // Timeout for the USB FIFO drain loop: if the host is disconnected the CDC
 // TX buffer fills and availableForWrite() returns 0 forever.  After this many
 // microseconds we give up rather than hanging the task indefinitely.
 static constexpr int64_t kUsbWriteTimeoutUs = 2000000LL;  // 2 seconds
 
+// Write to USB serial in ≤128-byte chunks, yielding between them so the UART
+// ISR can drain the TX buffer. Never holds portENTER_CRITICAL across a
+// potential stall — the interrupt WDT fires at ~300ms with interrupts off
+// (crash: "Interrupt wdt timeout on CPU1").
 void serial_out_usb_write(const uint8_t *data, size_t len) {
   size_t off = 0;
   const int64_t deadline = esp_timer_get_time() + kUsbWriteTimeoutUs;
@@ -125,6 +101,24 @@ void serial_out_usb_write(const uint8_t *data, size_t len) {
       esp_task_wdt_reset();
     }
   }
+}
+
+static void serial_usb_write_line(const char *line) {
+  const size_t n = strlen(line);
+  char buf[544];
+  if (n + 1 <= sizeof(buf)) {
+    if (n > 0) {
+      memcpy(buf, line, n);
+    }
+    buf[n] = '\n';
+    serial_out_usb_write((const uint8_t *)buf, n + 1);
+    return;
+  }
+  // Line exceeds stack buffer — write in two calls (all callers are on the
+  // main task so interleaving with other output lines cannot happen).
+  serial_out_usb_write((const uint8_t *)line, n);
+  const uint8_t nl = '\n';
+  serial_out_usb_write(&nl, 1);
 }
 
 // Single output path for every JSON line: USB serial and (if built) the SD

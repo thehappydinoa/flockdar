@@ -6,16 +6,19 @@
 #include "ble_scanner.h"
 #include "config.h"
 #include "rf_sightings.h"
+#include "serial_out.h"
 #include "wifi_scanner.h"
 
 static volatile uint32_t s_queue_drops = 0;
 static volatile uint32_t s_emits = 0;
 static uint32_t s_last_heap_sample = 0;
+static uint32_t s_last_heartbeat = 0;
 
 void stats_begin() {
   s_queue_drops = 0;
   s_emits = 0;
   s_last_heap_sample = 0;
+  s_last_heartbeat = 0;
 }
 
 void stats_loop() {
@@ -25,6 +28,15 @@ void stats_loop() {
   }
   s_last_heap_sample = now;
   (void)ESP.getMinFreeHeap();
+
+#if FD_STATS_HEARTBEAT_MS > 0
+  if (now - s_last_heartbeat >= FD_STATS_HEARTBEAT_MS) {
+    s_last_heartbeat = now;
+    char body[256];
+    const size_t n = stats_format_json(body, sizeof(body));
+    serial_out_stats(body, n);
+  }
+#endif
 }
 
 void stats_note_queue_drop() { s_queue_drops++; }

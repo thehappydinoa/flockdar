@@ -175,7 +175,15 @@ def _format_monitor_line(obj: dict[str, Any]) -> str | None:
     fw = obj.get("fw", "?")
     ts = obj.get("ts_ms", "?")
     if etype == "info":
-        return f"[{ts}ms] fw={fw}  {obj.get('msg', '')}"
+        msg = obj.get("msg", "")
+        if msg == "stats":
+            s = obj.get("stats") or {}
+            wifi = s.get("wifi_mgmt", "?")
+            ble = s.get("ble_adverts", "?")
+            drops = s.get("queue_drops", 0)
+            drop_s = f"  drops={drops}" if drops else ""
+            return f"[{ts}ms] fw={fw}  alive  wifi_mgmt={wifi} ble_adverts={ble}{drop_s}"
+        return f"[{ts}ms] fw={fw}  {msg}"
     if etype == "gps_status":
         fix = obj.get("fix")
         nmea = int(obj.get("nmea", 0) or 0)
