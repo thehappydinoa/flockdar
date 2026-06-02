@@ -39,6 +39,7 @@ class TdeckChrome {
   void paint_chrome_bottom();
   void invalidate_header();
   void invalidate_footer();
+  void invalidate_dots() { dots_ok_ = false; }
 
   void paint_list_row(int y, bool selected, bool flock_accent, const char *line1,
                       uint8_t font1, const char *line2, uint8_t icon = 255,

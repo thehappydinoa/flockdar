@@ -642,7 +642,7 @@ void paint_status(bool force_full) {
 
   disp().setViewport(0, kHdrH, disp().width(), body_h, false);
   if (dynamic_force) {
-    disp().fillRect(0, kHdrH, disp().width(), body_h, kBg);
+    chrome.clear_body();
     s_status_static = false;
   }
 
@@ -655,6 +655,7 @@ void paint_status(bool force_full) {
   const int y_bot = disp().height() - kChromeBottom;
   if (y_tail < y_bot) {
     disp().fillRect(0, y_tail, disp().width(), y_bot - y_tail, kBg);
+    chrome.invalidate_dots();
   }
   disp().resetViewport();
 }

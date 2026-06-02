@@ -160,7 +160,8 @@ flowchart TB
     UI --> SCAN
   end
 
-  fw -->|USB / SD NDJSON| SER
+  SIG -->|generate oui_list.h| MATCH
+  MATCH -->|USB / SD NDJSON| SER
 ```
 
 | Path | Component |

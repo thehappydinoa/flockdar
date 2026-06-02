@@ -26,7 +26,7 @@
 #endif
 // Bump when flashing to confirm the new build is running (shown on boot + status).
 #ifndef FD_FW_VERSION
-#define FD_FW_VERSION "0.3.6"
+#define FD_FW_VERSION "0.3.7"
 #endif
 
 // HMAC-SHA256 key shared with the Python receiver so it can reject forged or
