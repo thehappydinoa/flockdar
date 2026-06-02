@@ -31,6 +31,7 @@ dependencies = [
 [project.scripts]
 flockdar = "flockdar.tui:main"
 flockdar-ingest = "flockdar.serial_import:main"
+flockdar-runs = "flockdar.wigle_runs:main"
 
 [project.urls]
 "Source" = "https://github.com/thehappydinoa/flockdar"

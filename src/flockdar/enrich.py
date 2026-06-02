@@ -13,7 +13,7 @@ Three async enrichers, all optional and independently enable-able:
   WiGLEEnricher      — looks up each MAC in the WiGLE API. Requires a WiGLE
                        API key (free account at wigle.net). Credentials are
                        read from env vars WIGLE_API_NAME / WIGLE_API_TOKEN or
-                       from ~/.config/flock-wigle/config.json (chmod 600).
+                       from ~/.config/flockdar/config.json (chmod 600).
 
 Usage:
     import asyncio
@@ -60,7 +60,7 @@ ENRICHMENT_SIGNAL_LABELS: frozenset[str] = frozenset(
     }
 )
 
-_UA = "flock-wigle-detect/1.0"
+_UA = "flockdar-detect/1.0"
 
 # Per-enricher cache TTLs (seconds)
 _ENRICHER_TTLS: dict[str, float] = {
@@ -76,20 +76,24 @@ _ENRICHER_TTLS: dict[str, float] = {
 
 def _cache_dir() -> Path:
     if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA") or "") or Path.home()
+        xdg = os.environ.get("LOCALAPPDATA", "").strip()
+        base = Path(xdg) if xdg else Path.home()
     else:
-        base = Path(os.environ.get("XDG_CACHE_HOME") or "") or Path.home() / ".cache"
-    d = base / "flock-wigle"
+        xdg = os.environ.get("XDG_CACHE_HOME", "").strip()
+        base = Path(xdg) if xdg else Path.home() / ".cache"
+    d = base / "flockdar"
     d.mkdir(parents=True, exist_ok=True)
     return d
 
 
 def _config_path() -> Path:
     if sys.platform == "win32":
-        base = Path(os.environ.get("APPDATA") or "") or Path.home()
+        xdg = os.environ.get("APPDATA", "").strip()
+        base = Path(xdg) if xdg else Path.home()
     else:
-        base = Path(os.environ.get("XDG_CONFIG_HOME") or "") or Path.home() / ".config"
-    d = base / "flock-wigle"
+        xdg = os.environ.get("XDG_CONFIG_HOME", "").strip()
+        base = Path(xdg) if xdg else Path.home() / ".config"
+    d = base / "flockdar"
     d.mkdir(parents=True, exist_ok=True)
     return d / "config.json"
 

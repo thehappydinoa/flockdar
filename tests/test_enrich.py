@@ -85,7 +85,7 @@ class TestDistM:
 
 class TestConfig:
     def test_roundtrip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        cfg_file = tmp_path / "flock-wigle" / "config.json"
+        cfg_file = tmp_path / "flockdar" / "config.json"
         monkeypatch.setattr(enrich_mod, "_config_path", lambda: cfg_file)
         cfg_file.parent.mkdir(parents=True, exist_ok=True)
 

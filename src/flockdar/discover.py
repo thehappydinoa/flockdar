@@ -7,7 +7,7 @@ API calls are not wasted on repeated runs.
 
 Requires a WiGLE API key (free account at wigle.net). Credentials are read
 from the same config as enrich.py: env vars WIGLE_API_NAME / WIGLE_API_TOKEN
-or ~/.config/flock-wigle/config.json.
+or ~/.config/flockdar/config.json.
 """
 
 from __future__ import annotations

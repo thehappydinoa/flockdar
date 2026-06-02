@@ -121,7 +121,7 @@ export WIGLE_API_TOKEN=your_api_token
 uv run flockdar wigle_backup.sqlite
 ```
 
-Credentials are stored in `~/.config/flock-wigle/config.json` (Unix: `chmod 600`).
+Credentials are stored in `~/.config/flockdar/config.json` (Unix: `chmod 600`).
 
 ---
 
