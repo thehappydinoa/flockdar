@@ -19,6 +19,20 @@ from typing import Any
 from . import signatures as sig
 
 # ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def freq_to_channel(freq_mhz: int) -> int:
+    """Convert WiFi frequency in MHz to 802.11 channel number (0 if unknown)."""
+    if 2412 <= freq_mhz <= 2484:
+        return (freq_mhz - 2407) // 5
+    if 5170 <= freq_mhz <= 5825:
+        return (freq_mhz - 5000) // 5
+    return 0
+
+
+# ---------------------------------------------------------------------------
 # Data model
 # ---------------------------------------------------------------------------
 
@@ -111,6 +125,13 @@ class Cluster:
     def first_seen(self) -> str:
         dates = [h.first_seen for h in self.hits if h.first_seen]
         return max(dates) if dates else ""
+
+    @property
+    def channel(self) -> int:
+        """Most common non-zero WiFi channel across hits (0 for BLE-only or unknown)."""
+        channels = [freq_to_channel(h.frequency) for h in self.hits if h.frequency]
+        valid = [c for c in channels if c]
+        return Counter(valid).most_common(1)[0][0] if valid else 0
 
     @property
     def mac_list(self) -> str:
@@ -237,7 +258,9 @@ def analyze(  # noqa: PLR0912 (many branches by design)
         h().add_signal("FLOCK_DIRECT_OUI", oui)
 
     if oui in sig.FLOCK_CHIP_OUIS:
-        h().add_signal("CHIP_OUI", oui)
+        ch = freq_to_channel(frequency)
+        ch_tag = f"+ch{ch}" if ch and frequency in sig.FLOCK_CAMERA_CHANNELS_MHZ else ""
+        h().add_signal("CHIP_OUI", f"{oui}{ch_tag}")
 
     if oui in sig.FLOCK_BACKHAUL_OUIS:
         if "flock" in ssid_l:
@@ -365,12 +388,85 @@ def read_csv(path: Path) -> Iterator[Record]:
             }
 
 
+def read_kml(path: Path) -> Iterator[Record]:
+    import xml.etree.ElementTree as ET
+
+    NS = "http://www.opengis.net/kml/2.2"
+    tag = lambda name: f"{{{NS}}}{name}"  # noqa: E731
+
+    for _, elem in ET.iterparse(str(path), events=("end",)):
+        if elem.tag != tag("Placemark"):
+            continue
+
+        name_el = elem.find(tag("name"))
+        desc_el = elem.find(tag("description"))
+        coords_el = elem.find(f".//{tag('coordinates')}")
+
+        ssid = (name_el.text or "").strip() if name_el is not None else ""
+        if ssid == "(no SSID)":
+            ssid = ""
+
+        mac = ""
+        device_type = "W"
+        rssi = 0
+        first_seen = ""
+
+        if desc_el is not None and desc_el.text:
+            for line in desc_el.text.splitlines():
+                line = line.strip()
+                if line.startswith("Network ID: "):
+                    mac = line[len("Network ID: "):]
+                elif line.startswith("Type: "):
+                    device_type = line[len("Type: "):]
+                elif line.startswith("Signal: "):
+                    try:
+                        rssi = int(float(line[len("Signal: "):]))
+                    except ValueError:
+                        pass
+                elif line.startswith("Time: "):
+                    try:
+                        dt = datetime.fromisoformat(line[len("Time: "):])
+                        first_seen = dt.astimezone(UTC).strftime("%Y-%m-%d %H:%M:%S")
+                    except ValueError:
+                        first_seen = line[len("Time: "):]
+
+        elem.clear()  # free memory as we go
+
+        if not mac:
+            continue
+
+        lat = lon = 0.0
+        if coords_el is not None and coords_el.text:
+            parts = coords_el.text.strip().split(",")
+            if len(parts) >= 2:
+                try:
+                    lon, lat = float(parts[0]), float(parts[1])
+                except ValueError:
+                    pass
+
+        yield {
+            "mac": mac,
+            "ssid": ssid,
+            "type": device_type,
+            "rssi": rssi,
+            "lat": lat,
+            "lon": lon,
+            "first_seen": first_seen,
+            "services": "",
+            "frequency": 0,
+            "capabilities": "",
+            "mfgrid": 0,
+        }
+
+
 def load_records(path: Path) -> Iterator[Record]:
     suffix = path.suffix.lower()
     if suffix in (".sqlite", ".sqlite3", ".db"):
         yield from read_sqlite(path)
     elif suffix in (".gz", ".csv"):
         yield from read_csv(path)
+    elif suffix == ".kml":
+        yield from read_kml(path)
     else:
         raise ValueError(f"Unsupported file type: {suffix}")
 

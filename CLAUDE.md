@@ -61,10 +61,11 @@ Version lives in `src/flockdar/__init__.py` (`__version__`, hatchling dynamic).
 
 ## Input formats
 
-The tool reads two WiGLE data formats:
+The tool reads three WiGLE data formats:
 
 - **SQLite** (`.sqlite`/`.db`) — WiGLE Android app backup; richer, includes `service` column with BLE service UUIDs space-separated
 - **CSV.gz** (`.csv.gz`/`.csv`) — WiGLE web export or app export; no service UUID data
+- **KML** (`.kml`) — WiGLE KML export; no frequency, capabilities, or service UUID data. Parsed with `iterparse` for memory efficiency.
 
 The SQLite `network` table has a single-char `type` field: `W`=WiFi, `E`=BLE, `B`=Bluetooth Classic.
 

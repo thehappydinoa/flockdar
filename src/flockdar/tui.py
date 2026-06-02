@@ -51,7 +51,7 @@ from textual.widgets import (
 
 from . import detect, serial_import
 from . import enrich as enrich_mod
-from .detect import Cluster, Hit
+from .detect import Cluster, Hit, freq_to_channel
 from .discover import DISCOVERED_SIGNAL, build_discovery, cache_age_seconds
 from .enrich import (
     ENRICHMENT_SIGNAL_LABELS,
@@ -174,7 +174,7 @@ class DetailPanel(VerticalScroll):
             ("MAC", h.mac),
             ("Name", h.ssid or "(hidden)"),
             ("RSSI", f"{h.rssi} dBm"),
-            ("Freq", f"{h.frequency} MHz" if h.frequency else "—"),
+            ("Freq", f"{h.frequency} MHz (ch {freq_to_channel(h.frequency)})" if h.frequency else "—"),
             ("Auth", h.capabilities or "—"),
             ("MfgrId", str(h.mfgrid) if h.mfgrid else "—"),
             ("Seen", h.first_seen or "—"),
@@ -467,7 +467,7 @@ class FlockDetectApp(App):
 
         table = self.query_one("#device-table", DataTable)
         table.add_columns(
-            "", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Lat", "Lon", "Date", "Enriched"
+            "", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Ch", "Lat", "Lon", "Date", "Enriched"
         )
         table.focus()
 
@@ -551,6 +551,7 @@ class FlockDetectApp(App):
                 f"[{conf_color}]{c.confidence_label}[/{conf_color}]",
                 c.types,
                 f"{c.best_rssi}",
+                f"{c.channel}" if c.channel else "—",
                 f"{c.lat:.4f}" if (c.lat or c.lon) else "—",
                 f"{c.lon:.4f}" if (c.lat or c.lon) else "—",
                 (c.first_seen or "")[:10] or "—",
@@ -719,7 +720,7 @@ class FlockDetectApp(App):
             # Find which display row this hit belongs to and update its Enriched cell
             for row_idx, cluster in enumerate(self._display_items):
                 if hit in cluster.hits:
-                    enrich_col = 9  # "Enriched" is column index 9
+                    enrich_col = 10  # "Enriched" is column index 10
                     table.update_cell_at(
                         (row_idx, enrich_col),
                         cluster.enrichment_label(ENRICHMENT_SIGNAL_LABELS),
