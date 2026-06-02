@@ -25,7 +25,7 @@ def test_board_has_no_errors(board: pin_spec.Board) -> None:
 
 @pytest.mark.parametrize("board", pin_spec.BOARDS, ids=lambda b: b.key)
 def test_board_has_no_pin_conflicts(board: pin_spec.Board) -> None:
-    pins = [p for p in board.pins.values()]
+    pins = list(board.pins.values())
     assert len(pins) == len(set(pins)), f"duplicate GPIO in {board.key}: {pins}"
 
 
@@ -50,12 +50,24 @@ def test_pins_header_in_sync() -> None:
 def test_validator_catches_nonexistent_pin() -> None:
     """Regression guard: the old default MOSI=23 is invalid on the ESP32-S3."""
     bad = pin_spec.Board(
-        key="bad", board_id="x", chip="esp32s3", target_macro="X", gps_uart=1,
-        pins={"OLED_SDA": 8, "OLED_SCL": 9, "SD_CS": 10, "SD_SCK": 12,
-              "SD_MISO": 19, "SD_MOSI": 23, "GPS_RX": 18, "GPS_TX": 17},
+        key="bad",
+        board_id="x",
+        chip="esp32s3",
+        target_macro="X",
+        gps_uart=1,
+        pins={
+            "OLED_SDA": 8,
+            "OLED_SCL": 9,
+            "SD_CS": 10,
+            "SD_SCK": 12,
+            "SD_MISO": 19,
+            "SD_MOSI": 23,
+            "GPS_RX": 18,
+            "GPS_TX": 17,
+        },
     )
     issues = pin_spec.validate(bad)
     errors = [i for i in issues if i.severity == pin_spec.ERROR]
     warns = [i for i in issues if i.severity == pin_spec.WARN]
-    assert any("does not exist" in i.message for i in errors)   # GPIO23
-    assert any("USB" in i.message for i in warns)               # GPIO19
+    assert any("does not exist" in i.message for i in errors)  # GPIO23
+    assert any("USB" in i.message for i in warns)  # GPIO19

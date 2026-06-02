@@ -79,9 +79,7 @@ class TestOUIsets:
 
 
 class TestRavenServiceUUIDs:
-    _uuid_re = re.compile(
-        r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$"
-    )
+    _uuid_re = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
     def test_high_confidence_uuids_format(self) -> None:
         for uuid in sig.RAVEN_SERVICES_HIGH:
@@ -103,4 +101,4 @@ class TestRavenServiceUUIDs:
         assert "WPS" not in sig.FLOCK_WIFI_CAPAB
 
     def test_camera_channels(self) -> None:
-        assert sig.FLOCK_CAMERA_CHANNELS_MHZ == {2412, 2437, 2462}
+        assert {2412, 2437, 2462} == sig.FLOCK_CAMERA_CHANNELS_MHZ

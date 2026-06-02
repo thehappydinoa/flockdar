@@ -15,7 +15,7 @@ from pathlib import Path
 GPS_CPP = Path(__file__).resolve().parents[1] / "esp32" / "src" / "gps.cpp"
 
 # Matches "$PCAS04,7*1E" inside a C string literal.
-_NMEA_RE = re.compile(r'\$([A-Z0-9,.\-]+)\*([0-9A-Fa-f]{2})')
+_NMEA_RE = re.compile(r"\$([A-Z0-9,.\-]+)\*([0-9A-Fa-f]{2})")
 
 
 def _checksum(body: str) -> str:
@@ -53,5 +53,6 @@ def test_all_nmea_checksums_valid() -> None:
 def test_no_gps_glonass_only_mode() -> None:
     # Regression: PCAS04,5 (GPS+GLONASS, no BeiDou) was the slow-acquisition bug.
     bodies = [b for b, _ in _commands()]
-    assert not any(b.strip() == "PCAS04,5" for b in bodies), \
+    assert not any(b.strip() == "PCAS04,5" for b in bodies), (
         "PCAS04,5 drops BeiDou — use ,7 for worldwide coverage"
+    )

@@ -24,6 +24,7 @@ Keybindings:
 """
 
 import argparse
+import contextlib
 import sys
 import webbrowser
 from pathlib import Path
@@ -48,12 +49,17 @@ from textual.widgets import (
     Static,
 )
 
-from . import detect
+from . import detect, serial_import
 from . import enrich as enrich_mod
-from . import serial_import
 from .detect import Cluster, Hit
-from .discover import DISCOVERED_SIGNAL, build_discovery, cache_age_seconds, load_cache
-from .enrich import ENRICHMENT_SIGNAL_LABELS, build_enrichers, enrich_hits_async, load_config, save_config
+from .discover import DISCOVERED_SIGNAL, build_discovery, cache_age_seconds
+from .enrich import (
+    ENRICHMENT_SIGNAL_LABELS,
+    build_enrichers,
+    enrich_hits_async,
+    load_config,
+    save_config,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -77,6 +83,8 @@ def _osm_tags(cluster: "Cluster") -> str:
     if cluster.confidence == 3:
         base += "\nbrand=Flock Safety\nbrand:wikidata=Q113557215"
     return base
+
+
 TYPE_ICON = {"W": "📶", "WIFI": "📶", "E": "🔵", "B": "🔵", "BLE": "🔵", "BT": "🔵"}
 
 
@@ -104,6 +112,7 @@ def _is_wifi(t: str) -> bool:
 # Widgets
 # ---------------------------------------------------------------------------
 
+
 class DetailPanel(VerticalScroll):
     DEFAULT_CSS = """
     DetailPanel {
@@ -130,19 +139,23 @@ class DetailPanel(VerticalScroll):
         conf_color = CONF_COLOR[cluster.confidence]
         n = len(cluster.hits)
 
-        self.mount(Label(
-            f"[{conf_color}]{cluster.confidence_label}[/{conf_color}]  "
-            f"{_cluster_icon(cluster)}  "
-            + (f"{n} devices" if n > 1 else cluster.hits[0].device_type),
-            classes="detail-head",
-        ))
+        self.mount(
+            Label(
+                f"[{conf_color}]{cluster.confidence_label}[/{conf_color}]  "
+                f"{_cluster_icon(cluster)}  "
+                + (f"{n} devices" if n > 1 else cluster.hits[0].device_type),
+                classes="detail-head",
+            )
+        )
         self.mount(Rule())
 
         if cluster.lat or cluster.lon:
-            self.mount(Horizontal(
-                Label("Location:", classes="detail-key"),
-                Label(f"{cluster.lat:.6f}, {cluster.lon:.6f}", classes="detail-val"),
-            ))
+            self.mount(
+                Horizontal(
+                    Label("Location:", classes="detail-key"),
+                    Label(f"{cluster.lat:.6f}, {cluster.lon:.6f}", classes="detail-val"),
+                )
+            )
             hint = "  [m] Maps   [v] Street View"
             if cluster.confidence >= 2:
                 hint += "   [o] Add to OSM"
@@ -158,19 +171,21 @@ class DetailPanel(VerticalScroll):
 
     def _show_single(self, h: Hit) -> None:
         rows = [
-            ("MAC",    h.mac),
-            ("Name",   h.ssid or "(hidden)"),
-            ("RSSI",   f"{h.rssi} dBm"),
-            ("Freq",   f"{h.frequency} MHz" if h.frequency else "—"),
-            ("Auth",   h.capabilities or "—"),
+            ("MAC", h.mac),
+            ("Name", h.ssid or "(hidden)"),
+            ("RSSI", f"{h.rssi} dBm"),
+            ("Freq", f"{h.frequency} MHz" if h.frequency else "—"),
+            ("Auth", h.capabilities or "—"),
             ("MfgrId", str(h.mfgrid) if h.mfgrid else "—"),
-            ("Seen",   h.first_seen or "—"),
+            ("Seen", h.first_seen or "—"),
         ]
         for key, val in rows:
-            self.mount(Horizontal(
-                Label(f"{key}:", classes="detail-key"),
-                Label(str(val), classes="detail-val"),
-            ))
+            self.mount(
+                Horizontal(
+                    Label(f"{key}:", classes="detail-key"),
+                    Label(str(val), classes="detail-val"),
+                )
+            )
         self.mount(Rule())
         self.mount(Label("Signals", classes="detail-key"))
         for label, detail in h.signals:
@@ -193,13 +208,15 @@ class DetailPanel(VerticalScroll):
 
     def _show_cluster(self, cluster: Cluster) -> None:
         self.mount(Rule())
-        for i, h in enumerate(cluster.hits):
+        for h in cluster.hits:
             conf_color = CONF_COLOR[h.confidence]
-            self.mount(Label(
-                f"[{conf_color}]{'─' * 3} {_type_icon(h.device_type)} {h.mac}[/{conf_color}]"
-                + (f"  {h.ssid!r}" if h.ssid else ""),
-                classes="detail-sub",
-            ))
+            self.mount(
+                Label(
+                    f"[{conf_color}]{'─' * 3} {_type_icon(h.device_type)} {h.mac}[/{conf_color}]"
+                    + (f"  {h.ssid!r}" if h.ssid else ""),
+                    classes="detail-sub",
+                )
+            )
             for label, detail in h.signals:
                 txt = f"    • {label}"
                 if detail:
@@ -222,34 +239,45 @@ class FilterPanel(Vertical):
 
     def compose(self) -> ComposeResult:
         yield Label("Confidence")
-        yield Checkbox("HIGH",        value=True,  id="cf_high")
-        yield Checkbox("MEDIUM",      value=True,  id="cf_med")
-        yield Checkbox("LOW",         value=False, id="cf_low")
+        yield Checkbox("HIGH", value=True, id="cf_high")
+        yield Checkbox("MEDIUM", value=True, id="cf_med")
+        yield Checkbox("LOW", value=False, id="cf_low")
         yield Rule()
         yield Label("Type")
-        yield Checkbox("WiFi",        value=True,  id="t_wifi")
-        yield Checkbox("BLE / BT",    value=True,  id="t_ble")
-        yield Checkbox("Other",       value=True,  id="t_other")
+        yield Checkbox("WiFi", value=True, id="t_wifi")
+        yield Checkbox("BLE / BT", value=True, id="t_ble")
+        yield Checkbox("Other", value=True, id="t_other")
         yield Rule()
         yield Label("Display")
         yield Checkbox("Group nearby", value=False, id="group_nearby")
 
     def active_confidences(self) -> set[int]:
         result = set()
-        if self.query_one("#cf_high",  Checkbox).value: result.add(3)
-        if self.query_one("#cf_med",   Checkbox).value: result.add(2)
-        if self.query_one("#cf_low",   Checkbox).value: result.add(1)
+        if self.query_one("#cf_high", Checkbox).value:
+            result.add(3)
+        if self.query_one("#cf_med", Checkbox).value:
+            result.add(2)
+        if self.query_one("#cf_low", Checkbox).value:
+            result.add(1)
         return result
 
-    def show_wifi(self)    -> bool: return self.query_one("#t_wifi",  Checkbox).value
-    def show_ble(self)     -> bool: return self.query_one("#t_ble",   Checkbox).value
-    def show_other(self)   -> bool: return self.query_one("#t_other", Checkbox).value
-    def group_nearby(self) -> bool: return self.query_one("#group_nearby", Checkbox).value
+    def show_wifi(self) -> bool:
+        return self.query_one("#t_wifi", Checkbox).value
+
+    def show_ble(self) -> bool:
+        return self.query_one("#t_ble", Checkbox).value
+
+    def show_other(self) -> bool:
+        return self.query_one("#t_other", Checkbox).value
+
+    def group_nearby(self) -> bool:
+        return self.query_one("#group_nearby", Checkbox).value
 
 
 # ---------------------------------------------------------------------------
 # WiGLE config modal
 # ---------------------------------------------------------------------------
+
 
 class WiGLEConfigScreen(ModalScreen):
     DEFAULT_CSS = """
@@ -279,14 +307,19 @@ class WiGLEConfigScreen(ModalScreen):
                 classes="hint",
             )
             yield Label("API Name")
-            yield Input(value=cfg.get("wigle_api_name", ""), id="wigle-name",
-                        placeholder="your_api_name")
+            yield Input(
+                value=cfg.get("wigle_api_name", ""), id="wigle-name", placeholder="your_api_name"
+            )
             yield Label("API Token")
-            yield Input(value=cfg.get("wigle_api_token", ""), id="wigle-token",
-                        placeholder="your_api_token", password=True)
+            yield Input(
+                value=cfg.get("wigle_api_token", ""),
+                id="wigle-token",
+                placeholder="your_api_token",
+                password=True,
+            )
             with Horizontal(id="wigle-buttons"):
                 yield Button("Cancel", variant="default", id="wigle-cancel")
-                yield Button("Save",   variant="primary",  id="wigle-save")
+                yield Button("Save", variant="primary", id="wigle-save")
 
     @on(Button.Pressed, "#wigle-cancel")
     def _cancel(self) -> None:
@@ -294,11 +327,11 @@ class WiGLEConfigScreen(ModalScreen):
 
     @on(Button.Pressed, "#wigle-save")
     def _save(self) -> None:
-        name  = self.query_one("#wigle-name",  Input).value.strip()
+        name = self.query_one("#wigle-name", Input).value.strip()
         token = self.query_one("#wigle-token", Input).value.strip()
         if name and token:
             cfg = load_config()
-            cfg["wigle_api_name"]  = name
+            cfg["wigle_api_name"] = name
             cfg["wigle_api_token"] = token
             save_config(cfg)
         self.dismiss((name, token))
@@ -307,6 +340,7 @@ class WiGLEConfigScreen(ModalScreen):
 # ---------------------------------------------------------------------------
 # Main app
 # ---------------------------------------------------------------------------
+
 
 class FlockDetectApp(App):
     TITLE = "Flock Safety Detector"
@@ -342,19 +376,19 @@ class FlockDetectApp(App):
     """
 
     BINDINGS = [
-        Binding("m", "open_maps",       "Maps"),
+        Binding("m", "open_maps", "Maps"),
         Binding("v", "open_streetview", "Street View"),
-        Binding("c", "copy_mac",        "Copy MAC"),
-        Binding("n", "enrich",          "Enrich"),
-        Binding("d", "discover",        "Discover"),
-        Binding("D", "discover_force",  "Discover (refresh)", show=False),
-        Binding("w", "wigle_config",    "WiGLE Key"),
-        Binding("e", "export_csv",      "Export CSV"),
-        Binding("k", "export_kml",      "Export KML"),
-        Binding("g", "export_geojson",  "Export GeoJSON"),
-        Binding("o", "open_osm",        "Add to OSM"),
-        Binding("r", "reload",          "Reload"),
-        Binding("q", "quit",            "Quit"),
+        Binding("c", "copy_mac", "Copy MAC"),
+        Binding("n", "enrich", "Enrich"),
+        Binding("d", "discover", "Discover"),
+        Binding("D", "discover_force", "Discover (refresh)", show=False),
+        Binding("w", "wigle_config", "WiGLE Key"),
+        Binding("e", "export_csv", "Export CSV"),
+        Binding("k", "export_kml", "Export KML"),
+        Binding("g", "export_geojson", "Export GeoJSON"),
+        Binding("o", "open_osm", "Add to OSM"),
+        Binding("r", "reload", "Reload"),
+        Binding("q", "quit", "Quit"),
     ]
 
     all_hits: reactive[list[Hit]] = reactive([], recompose=False)
@@ -432,7 +466,9 @@ class FlockDetectApp(App):
         right.mount(DetailPanel(id="detail"))
 
         table = self.query_one("#device-table", DataTable)
-        table.add_columns("", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Lat", "Lon", "Date", "Enriched")
+        table.add_columns(
+            "", "MAC / Devices", "Name", "Conf", "Type", "RSSI", "Lat", "Lon", "Date", "Enriched"
+        )
         table.focus()
 
     def _on_data_loaded(self, hits: list[Hit], total: int) -> None:
@@ -458,16 +494,12 @@ class FlockDetectApp(App):
                     break
                 self.call_from_thread(self._on_live_hit, hit)
         except RuntimeError as exc:  # pyserial missing / port error
-            self.call_from_thread(
-                self.notify, str(exc), severity="error", title="Serial"
-            )
+            self.call_from_thread(self.notify, str(exc), severity="error", title="Serial")
 
     def _on_live_hit(self, hit: Hit) -> None:
         is_new = serial_import.merge_hit(self._live_seen, hit)
         self.total_records += 1
-        self.all_hits = sorted(
-            self._live_seen.values(), key=lambda h: (-h.confidence, h.mac)
-        )
+        self.all_hits = sorted(self._live_seen.values(), key=lambda h: (-h.confidence, h.mac))
         self._rebuild_table()
         if is_new and hit.confidence == 3:
             self.bell()
@@ -494,10 +526,11 @@ class FlockDetectApp(App):
             if h.confidence not in active_conf:
                 return False
             t = h.device_type.upper()
-            if _is_wifi(t)                        and not fp.show_wifi():  return False
-            if _is_ble(t)                         and not fp.show_ble():   return False
-            if not _is_wifi(t) and not _is_ble(t) and not fp.show_other(): return False
-            return True
+            if _is_wifi(t) and not fp.show_wifi():
+                return False
+            if _is_ble(t) and not fp.show_ble():
+                return False
+            return _is_wifi(t) or _is_ble(t) or fp.show_other()
 
         filtered_hits = [h for h in self.all_hits if visible(h)]
 
@@ -525,9 +558,9 @@ class FlockDetectApp(App):
             )
 
         n_items = len(self._display_items)
-        n_hits  = sum(len(c.hits) for c in self._display_items)
-        total   = len(self.all_hits)
-        label   = "clusters" if fp.group_nearby() else "devices"
+        n_hits = sum(len(c.hits) for c in self._display_items)
+        total = len(self.all_hits)
+        label = "clusters" if fp.group_nearby() else "devices"
         self.query_one("#status-bar", Static).update(
             f" {self.total_records:,} records scanned  •  "
             f"{total} matched  •  "
@@ -681,7 +714,7 @@ class FlockDetectApp(App):
 
     def _on_hit_enriched(self, hit: Hit, done: int, total: int) -> None:
         try:
-            table  = self.query_one("#device-table", DataTable)
+            table = self.query_one("#device-table", DataTable)
             detail = self.query_one("#detail", DetailPanel)
             # Find which display row this hit belongs to and update its Enriched cell
             for row_idx, cluster in enumerate(self._display_items):
@@ -715,6 +748,7 @@ class FlockDetectApp(App):
                 name, token = result
                 if name and token:
                     self.notify("WiGLE credentials saved.", title="WiGLE")
+
         self.push_screen(WiGLEConfigScreen(), on_dismiss)
 
     def action_discover(self) -> None:
@@ -725,7 +759,8 @@ class FlockDetectApp(App):
         if disc is None:
             self.notify(
                 "No WiGLE credentials — press [w] to configure.",
-                title="Discover", severity="warning",
+                title="Discover",
+                severity="warning",
             )
             return
 
@@ -734,8 +769,7 @@ class FlockDetectApp(App):
         if age is not None:
             hours = age / 3600
             self.notify(
-                f"Using cached results ({hours:.1f} h old).  "
-                f"Hold Shift+D to force refresh.",
+                f"Using cached results ({hours:.1f} h old).  Hold Shift+D to force refresh.",
                 title="Discovery (cached)",
             )
         else:
@@ -754,23 +788,23 @@ class FlockDetectApp(App):
             return
         disc = build_discovery()
         if disc is None:
-            self.notify("No WiGLE credentials — press [w] to configure.",
-                        title="Discover", severity="warning")
+            self.notify(
+                "No WiGLE credentials — press [w] to configure.",
+                title="Discover",
+                severity="warning",
+            )
             return
         self._discovering = True
-        self.notify("Force-refreshing from WiGLE (ignoring cache)…",
-                    title="Discovery started")
+        self.notify("Force-refreshing from WiGLE (ignoring cache)…", title="Discovery started")
         self._run_discovery(disc, force_refresh=True)
 
     @work
     async def _run_discovery(self, disc, force_refresh: bool = False) -> None:
         def on_progress(raw: int, total: int, label: str) -> None:
-            try:
+            with contextlib.suppress(NoMatches):
                 self.query_one("#status-bar", Static).update(
                     f" Discovering… {raw}/{total} rows from WiGLE ({label})"
                 )
-            except NoMatches:
-                pass
 
         new_hits, stats = await disc.discover(
             force_refresh=force_refresh,
@@ -807,13 +841,17 @@ class FlockDetectApp(App):
             )
             if stats.error:
                 msg += f"  ⚠ {stats.error}"
-            self.notify(msg, title="Discovery complete",
-                        severity="warning" if stats.error else "information")
+            self.notify(
+                msg,
+                title="Discovery complete",
+                severity="warning" if stats.error else "information",
+            )
 
 
 # ---------------------------------------------------------------------------
 # Entry point
 # ---------------------------------------------------------------------------
+
 
 def main() -> None:
     parser = argparse.ArgumentParser(

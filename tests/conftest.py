@@ -43,6 +43,7 @@ MAC_WIFI_OTHER = "d8:f3:bc:00:00:01"
 # Hit factories
 # ---------------------------------------------------------------------------
 
+
 def make_hit(
     mac: str = MAC_EX,
     ssid: str = "",
@@ -114,6 +115,7 @@ def hit_no_location() -> Hit:
 # KML/KMZ helpers
 # ---------------------------------------------------------------------------
 
+
 def make_kml(placemarks: list[tuple[float, float, str]]) -> bytes:
     """Generate a minimal KML document with the given (lat, lon, name) placemarks."""
     pms = "".join(
@@ -128,7 +130,7 @@ def make_kml(placemarks: list[tuple[float, float, str]]) -> bytes:
         '<kml xmlns="http://www.opengis.net/kml/2.2">'
         f"<Document>{pms}</Document>"
         "</kml>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def make_kmz(placemarks: list[tuple[float, float, str]]) -> bytes:

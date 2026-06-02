@@ -28,16 +28,45 @@ FLOCK_DIRECT_OUIS = {
 # Also appear on non-Flock devices — use with corroborating signals.
 FLOCK_CHIP_OUIS = {
     # FS Ext Battery / Raven camera (Silicon Labs / Lite-On)
-    "58:8e:81", "ec:1b:bd", "90:35:ea", "04:0d:84",
-    "f0:82:c0", "1c:34:f1", "38:5b:44", "94:34:69", "b4:e3:f9",
+    "58:8e:81",
+    "ec:1b:bd",
+    "90:35:ea",
+    "04:0d:84",
+    "f0:82:c0",
+    "1c:34:f1",
+    "38:5b:44",
+    "94:34:69",
+    "b4:e3:f9",
     "cc:cc:cc",
     # Flock WiFi devices (NitekryDPaul)
-    "70:c9:4e", "3c:91:80", "d8:f3:bc", "80:30:49", "b8:35:32",
-    "14:5a:fc", "74:4c:a1", "08:3a:88", "9c:2f:9d", "c0:35:32",
-    "94:08:53", "e4:aa:ea", "f4:6a:dd", "f8:a2:d6", "24:b2:b9",
-    "00:f4:8d", "d0:39:57", "e8:d0:fc", "e0:4f:43", "b8:1e:a4",
-    "70:08:94", "3c:71:bf", "58:00:e3", "5c:93:a2", "64:6e:69",
-    "48:27:ea", "a4:cf:12", "82:6b:f2",
+    "70:c9:4e",
+    "3c:91:80",
+    "d8:f3:bc",
+    "80:30:49",
+    "b8:35:32",
+    "14:5a:fc",
+    "74:4c:a1",
+    "08:3a:88",
+    "9c:2f:9d",
+    "c0:35:32",
+    "94:08:53",
+    "e4:aa:ea",
+    "f4:6a:dd",
+    "f8:a2:d6",
+    "24:b2:b9",
+    "00:f4:8d",
+    "d0:39:57",
+    "e8:d0:fc",
+    "e0:4f:43",
+    "b8:1e:a4",
+    "70:08:94",
+    "3c:71:bf",
+    "58:00:e3",
+    "5c:93:a2",
+    "64:6e:69",
+    "48:27:ea",
+    "a4:cf:12",
+    "82:6b:f2",
 }
 
 ALL_OUIS = FLOCK_DIRECT_OUIS | FLOCK_CHIP_OUIS
@@ -53,7 +82,7 @@ FLOCK_BACKHAUL_OUIS = {
 }
 
 FLOCK_SSID_PATTERNS = [
-    "flocknet",      # confirmed Flock internal mesh network name
+    "flocknet",  # confirmed Flock internal mesh network name
     "flock",
     "fs ext battery",
     "penguin",
@@ -71,7 +100,7 @@ FLOCK_CAMERA_SSID_RE = re.compile(r"^(Flock|FLOCK)-[0-9A-Fa-f]{6}$")
 # When a Flock chip-OUI device matches this capabilities string on one of
 # these channels, it's a strong corroborating signal even with a hidden SSID.
 FLOCK_WIFI_CAPAB = "[WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS]"
-FLOCK_CAMERA_CHANNELS_MHZ = {2412, 2437, 2462}   # ch 1, 6, 11
+FLOCK_CAMERA_CHANNELS_MHZ = {2412, 2437, 2462}  # ch 1, 6, 11
 
 # ---------------------------------------------------------------------------
 # Wildcard probe request detection (passive 802.11, not applicable to WiGLE)
@@ -88,7 +117,7 @@ FLOCK_CAMERA_CHANNELS_MHZ = {2412, 2437, 2462}   # ch 1, 6, 11
 # ---------------------------------------------------------------------------
 
 BLE_NAME_PATTERNS = [
-    "fs ext battery",   # Flock Safety Extended Battery
+    "fs ext battery",  # Flock Safety Extended Battery
     "flock",
     "pigvision",
 ]
@@ -105,7 +134,7 @@ PENGUIN_BLE_SSID_RE = re.compile(r"^Penguin-\d{10}$")
 # The mfgrid value in WiGLE SQLite is the decimal BT company ID from the
 # BLE advertisement manufacturer-specific data header.
 FLOCK_MFGRIDS = {
-    2504,   # Penguin surveillance devices (field-confirmed, flock-you dataset)
+    2504,  # Penguin surveillance devices (field-confirmed, flock-you dataset)
 }
 
 # ---------------------------------------------------------------------------

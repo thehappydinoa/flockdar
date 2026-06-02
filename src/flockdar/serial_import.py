@@ -44,11 +44,12 @@ import re
 import sqlite3
 import sys
 import time
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass
 from datetime import datetime
 from hashlib import sha256
 from pathlib import Path
-from typing import Any, Callable, Iterable, Iterator
+from typing import Any
 
 from . import detect
 
@@ -66,6 +67,7 @@ Record = dict[str, Any]
 # ---------------------------------------------------------------------------
 # Signing / verification
 # ---------------------------------------------------------------------------
+
 
 def resolve_key(key: str | None) -> bytes:
     """Resolve the HMAC key from arg, env, or the firmware default."""
@@ -91,6 +93,7 @@ def verify_line(line: str, key: bytes) -> bool:
 # JSON line -> detect Record
 # ---------------------------------------------------------------------------
 
+
 def _channel_to_mhz(channel: int) -> int:
     """2.4 GHz channel number -> centre frequency in MHz (ch 1..13)."""
     if 1 <= channel <= 13:
@@ -109,14 +112,8 @@ def line_to_record(obj: dict[str, Any], pos: dict[str, float]) -> tuple[Record, 
     if not mac:
         return None
 
-    if "lat" in obj:
-        lat = float(obj.get("lat", 0.0) or 0.0)
-    else:
-        lat = pos.get("lat", 0.0)
-    if "lon" in obj:
-        lon = float(obj.get("lon", 0.0) or 0.0)
-    else:
-        lon = pos.get("lon", 0.0)
+    lat = float(obj.get("lat", 0.0) or 0.0) if "lat" in obj else pos.get("lat", 0.0)
+    lon = float(obj.get("lon", 0.0) or 0.0) if "lon" in obj else pos.get("lon", 0.0)
 
     base: Record = {
         "mac": mac,
@@ -195,10 +192,7 @@ def _format_monitor_line(obj: dict[str, Any]) -> str | None:
             f"nmea={obj.get('nmea', 0)} sats={obj.get('sats', 0)}"
         )
     if etype == "gps":
-        return (
-            f"[{ts}ms] fw={fw}  gps FIX  "
-            f"acc={obj.get('accuracy', '?')}m"
-        )
+        return f"[{ts}ms] fw={fw}  gps FIX  acc={obj.get('accuracy', '?')}m"
     return None
 
 
@@ -220,6 +214,7 @@ def monitor_stream(lines: Iterable[str]) -> None:
 # ---------------------------------------------------------------------------
 # Stream -> Records / Hits
 # ---------------------------------------------------------------------------
+
 
 def iter_records(
     lines: Iterable[str], key: bytes, verify: bool = True
@@ -252,9 +247,7 @@ def iter_records(
             yield mapped
 
 
-def iter_hits(
-    lines: Iterable[str], key: bytes, verify: bool = True
-) -> Iterator[detect.Hit]:
+def iter_hits(lines: Iterable[str], key: bytes, verify: bool = True) -> Iterator[detect.Hit]:
     """Yield a Hit per detection line (no dedup — see merge_hits)."""
     for rec, method in iter_records(lines, key, verify=verify):
         hit = detect.analyze(**rec)
@@ -294,6 +287,7 @@ def load_log(path: Path, key: bytes, verify: bool = True) -> tuple[list[detect.H
 # ---------------------------------------------------------------------------
 # Line sources
 # ---------------------------------------------------------------------------
+
 
 def is_serial_source(source: str) -> bool:
     """Heuristic: a regular file is a log; anything else is a serial device."""
@@ -508,9 +502,7 @@ def serial_sd_dump(
                     print(f"  {msg}", file=sys.stderr, flush=True)
                 elif msg and msg.startswith("sd dump fail"):
                     raise RuntimeError(msg)
-                elif (msg and msg.startswith("sd dump begin")) or (
-                    "sd dump begin" in line
-                ):
+                elif (msg and msg.startswith("sd dump begin")) or ("sd dump begin" in line):
                     capturing = True
                     if msg:
                         print(f"  {msg}", file=sys.stderr, flush=True)
@@ -658,6 +650,7 @@ def write_sqlite(records: Iterable[Record], path: str) -> int:
 # CLI
 # ---------------------------------------------------------------------------
 
+
 def _summary(hit: detect.Hit, method: str) -> str:
     return (
         f"[{hit.confidence_label:>6}] {hit.device_type:<4} {hit.mac}  "
@@ -735,9 +728,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Done — {len(result.lines)} line(s).", file=sys.stderr)
         rows = result.lines
         if args.output:
-            Path(args.output).write_text(
-                "\n".join(rows) + ("\n" if rows else ""), encoding="utf-8"
-            )
+            Path(args.output).write_text("\n".join(rows) + ("\n" if rows else ""), encoding="utf-8")
             print(f"Wrote {len(rows)} line(s) -> {args.output}", file=sys.stderr)
         else:
             for row in rows:

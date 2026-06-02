@@ -49,8 +49,7 @@ class TestVerifyLine:
 class TestLineToRecord:
     def test_wifi_channel_to_mhz(self) -> None:
         rec, method = si.line_to_record(
-            {"type": "wifi", "method": "addr1", "mac": MAC_EX,
-             "rssi": -60, "channel": 6},
+            {"type": "wifi", "method": "addr1", "mac": MAC_EX, "rssi": -60, "channel": 6},
             {"lat": 0.0, "lon": 0.0},
         )
         assert rec["type"] == "WIFI"
@@ -59,8 +58,14 @@ class TestLineToRecord:
 
     def test_ble_name_and_mfgrid(self) -> None:
         rec, _ = si.line_to_record(
-            {"type": "ble", "method": "mfgrid", "mac": MAC_EX,
-             "name": "FS Ext Battery", "mfgrid": 2504, "rssi": -88},
+            {
+                "type": "ble",
+                "method": "mfgrid",
+                "mac": MAC_EX,
+                "name": "FS Ext Battery",
+                "mfgrid": 2504,
+                "rssi": -88,
+            },
             {"lat": 0.0, "lon": 0.0},
         )
         assert rec["type"] == "BLE"
@@ -76,8 +81,7 @@ class TestLineToRecord:
 
     def test_inline_position_overrides_running(self) -> None:
         rec, _ = si.line_to_record(
-            {"type": "wifi", "mac": MAC_EX,
-             "lat": EX_LAT_A, "lon": EX_LON_A, "accuracy": 3.1},
+            {"type": "wifi", "mac": MAC_EX, "lat": EX_LAT_A, "lon": EX_LON_A, "accuracy": 3.1},
             {"lat": EX_LAT, "lon": EX_LON},
         )
         assert rec["lat"] == EX_LAT_A and rec["lon"] == EX_LON_A

@@ -17,15 +17,16 @@ import base64
 import json
 import os
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
+from . import signatures as sig
 from .detect import Hit, analyze
 from .enrich import _cache_dir, _make_client, load_config
-from . import signatures as sig
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -57,7 +58,7 @@ _PAGE_DELAY_S = 0.5
 # Disk cache
 _CACHE_FILE = "wigle-discovery.json"
 _CACHE_TTL_S = 86_400  # 24 hours
-_CACHE_VERSION = 2      # bump when Hit serialisation changes
+_CACHE_VERSION = 2  # bump when Hit serialisation changes
 
 # Signal added to all discovery-sourced hits
 DISCOVERED_SIGNAL = "WIGLE_DISCOVERED"
@@ -67,20 +68,21 @@ DISCOVERED_SIGNAL = "WIGLE_DISCOVERED"
 # Hit serialisation (for disk cache)
 # ---------------------------------------------------------------------------
 
+
 def _hit_to_dict(h: Hit) -> dict[str, Any]:
     return {
-        "mac":          h.mac,
-        "ssid":         h.ssid,
-        "device_type":  h.device_type,
-        "lat":          h.lat,
-        "lon":          h.lon,
-        "rssi":         h.rssi,
-        "first_seen":   h.first_seen,
-        "signals":      h.signals,          # list[tuple[str,str]] — JSON-safe
-        "services":     h.services,
-        "frequency":    h.frequency,
+        "mac": h.mac,
+        "ssid": h.ssid,
+        "device_type": h.device_type,
+        "lat": h.lat,
+        "lon": h.lon,
+        "rssi": h.rssi,
+        "first_seen": h.first_seen,
+        "signals": h.signals,  # list[tuple[str,str]] — JSON-safe
+        "services": h.services,
+        "frequency": h.frequency,
         "capabilities": h.capabilities,
-        "mfgrid":       h.mfgrid,
+        "mfgrid": h.mfgrid,
     }
 
 
@@ -104,6 +106,7 @@ def _dict_to_hit(d: dict[str, Any]) -> Hit:
 # ---------------------------------------------------------------------------
 # Disk cache helpers
 # ---------------------------------------------------------------------------
+
 
 def _cache_path() -> Path:
     return _cache_dir() / _CACHE_FILE
@@ -148,9 +151,12 @@ def save_cache(hits: list[Hit], partial: bool = False) -> None:
     tmp = p.with_suffix(".tmp")
     try:
         payload = json.dumps(
-            {"version": _CACHE_VERSION, "timestamp": time.time(),
-             "partial": partial,
-             "hits": [_hit_to_dict(h) for h in hits]},
+            {
+                "version": _CACHE_VERSION,
+                "timestamp": time.time(),
+                "partial": partial,
+                "hits": [_hit_to_dict(h) for h in hits],
+            },
             separators=(",", ":"),
         )
         tmp.write_text(payload, encoding="utf-8")
@@ -167,19 +173,21 @@ def clear_cache() -> None:
 # Discovery stats
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class DiscoveryStats:
-    total_available: int    # WiGLE's reported total across all queries
-    raw_fetched:     int    # raw WiGLE rows retrieved (before filtering)
-    hits_converted:  int    # rows that converted to Hit objects
-    from_cache:      bool   # True if results came from disk cache
-    cache_age_s:     float  # seconds since cache was written (0 if fresh)
-    error:           str = ""  # last API error, if any
+    total_available: int  # WiGLE's reported total across all queries
+    raw_fetched: int  # raw WiGLE rows retrieved (before filtering)
+    hits_converted: int  # rows that converted to Hit objects
+    from_cache: bool  # True if results came from disk cache
+    cache_age_s: float  # seconds since cache was written (0 if fresh)
+    error: str = ""  # last API error, if any
 
 
 # ---------------------------------------------------------------------------
 # WiGLE discovery engine
 # ---------------------------------------------------------------------------
+
 
 class WiGLEDiscovery:
     """Search WiGLE's crowdsourced database for Flock devices."""
@@ -230,7 +238,9 @@ class WiGLEDiscovery:
                     hits_converted=len(hits),
                     from_cache=True,
                     cache_age_s=age,
-                    error="partial data (rate-limited during last fetch — press Shift+D to retry)" if is_partial else "",
+                    error="partial data (rate-limited during last fetch — press Shift+D to retry)"
+                    if is_partial
+                    else "",
                 )
 
         seen: dict[str, Hit] = {}
@@ -247,7 +257,9 @@ class WiGLEDiscovery:
                     break
                 lbl = f"BLE:{bt_name}"
                 hits, avail, raw = await self._search_bt(
-                    client, bt_name, max_per_query,
+                    client,
+                    bt_name,
+                    max_per_query,
                     lambda f, t, _l=lbl: progress(f, t, _l) if progress else None,
                 )
                 total_available += avail
@@ -269,7 +281,9 @@ class WiGLEDiscovery:
                     break
                 lbl = f"WiFi:{ssid}"
                 hits, avail, raw = await self._search_wifi(
-                    client, ssid, max_per_query,
+                    client,
+                    ssid,
+                    max_per_query,
                     lambda f, t, _l=lbl: progress(f, t, _l) if progress else None,
                 )
                 total_available += avail
@@ -437,25 +451,39 @@ class WiGLEDiscovery:
             return None
         # No date filter for BLE — "FS Ext Battery" is too specific to have
         # meaningful false positives, and Flock deployed cameras from ~2019.
-        name   = row.get("name") or row.get("ssid") or ""
-        lat    = float(row.get("trilat") or 0)
-        lon    = float(row.get("trilong") or 0)
-        caps   = row.get("capabilities") or []
+        name = row.get("name") or row.get("ssid") or ""
+        lat = float(row.get("trilat") or 0)
+        lon = float(row.get("trilong") or 0)
+        caps = row.get("capabilities") or []
         cap_str = caps[0] if isinstance(caps, list) and caps else str(caps)
         mfgrid = row.get("mfgrId") or 0
-        freq   = int(row.get("device") or 0)
+        freq = int(row.get("device") or 0)
 
-        h = analyze(mac=mac, ssid=name, type="E", lat=lat, lon=lon,
-                    rssi=int(row.get("qos") or 0),
-                    first_seen=row.get("firsttime") or "",
-                    frequency=freq, capabilities=cap_str,
-                    mfgrid=int(mfgrid) if mfgrid else 0)
+        h = analyze(
+            mac=mac,
+            ssid=name,
+            type="E",
+            lat=lat,
+            lon=lon,
+            rssi=int(row.get("qos") or 0),
+            first_seen=row.get("firsttime") or "",
+            frequency=freq,
+            capabilities=cap_str,
+            mfgrid=int(mfgrid) if mfgrid else 0,
+        )
         if h is None:
-            h = Hit(mac=mac, ssid=name, device_type="E", lat=lat, lon=lon,
-                    rssi=int(row.get("qos") or 0),
-                    first_seen=row.get("firsttime") or "",
-                    frequency=freq, capabilities=cap_str,
-                    mfgrid=int(mfgrid) if mfgrid else 0)
+            h = Hit(
+                mac=mac,
+                ssid=name,
+                device_type="E",
+                lat=lat,
+                lon=lon,
+                rssi=int(row.get("qos") or 0),
+                first_seen=row.get("firsttime") or "",
+                frequency=freq,
+                capabilities=cap_str,
+                mfgrid=int(mfgrid) if mfgrid else 0,
+            )
         h.add_signal(DISCOVERED_SIGNAL, self._location_str(row))
         return h
 
@@ -470,20 +498,34 @@ class WiGLEDiscovery:
         oui = mac[:8]
         if ssid.lower() == "flocknet" and oui not in sig.FLOCK_BACKHAUL_OUIS:
             return None
-        lat  = float(row.get("trilat") or 0)
-        lon  = float(row.get("trilong") or 0)
+        lat = float(row.get("trilat") or 0)
+        lon = float(row.get("trilong") or 0)
         freq = int(row.get("frequency") or row.get("channel") or 0)
-        enc  = row.get("encryption") or ""
+        enc = row.get("encryption") or ""
 
-        h = analyze(mac=mac, ssid=ssid, type="W", lat=lat, lon=lon,
-                    rssi=int(row.get("qos") or 0),
-                    first_seen=row.get("firsttime") or "",
-                    frequency=freq, capabilities=enc)
+        h = analyze(
+            mac=mac,
+            ssid=ssid,
+            type="W",
+            lat=lat,
+            lon=lon,
+            rssi=int(row.get("qos") or 0),
+            first_seen=row.get("firsttime") or "",
+            frequency=freq,
+            capabilities=enc,
+        )
         if h is None:
-            h = Hit(mac=mac, ssid=ssid, device_type="W", lat=lat, lon=lon,
-                    rssi=int(row.get("qos") or 0),
-                    first_seen=row.get("firsttime") or "",
-                    frequency=freq, capabilities=enc)
+            h = Hit(
+                mac=mac,
+                ssid=ssid,
+                device_type="W",
+                lat=lat,
+                lon=lon,
+                rssi=int(row.get("qos") or 0),
+                first_seen=row.get("firsttime") or "",
+                frequency=freq,
+                capabilities=enc,
+            )
         h.add_signal(DISCOVERED_SIGNAL, self._location_str(row))
         return h
 
@@ -497,16 +539,17 @@ class WiGLEDiscovery:
 # Factory
 # ---------------------------------------------------------------------------
 
+
 def build_discovery(
     wigle_name: str = "",
     wigle_token: str = "",
 ) -> WiGLEDiscovery | None:
     """Return a WiGLEDiscovery instance if credentials are available, else None."""
-    name  = wigle_name  or os.environ.get("WIGLE_API_NAME",  "")
+    name = wigle_name or os.environ.get("WIGLE_API_NAME", "")
     token = wigle_token or os.environ.get("WIGLE_API_TOKEN", "")
     if not (name and token):
         cfg = load_config()
-        name  = name  or cfg.get("wigle_api_name",  "")
+        name = name or cfg.get("wigle_api_name", "")
         token = token or cfg.get("wigle_api_token", "")
     if name and token:
         return WiGLEDiscovery(name, token)

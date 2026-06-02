@@ -2,12 +2,10 @@
 
 from __future__ import annotations
 
-import json
 import sys
 import zipfile
 from io import BytesIO
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -24,12 +22,12 @@ from flockdar.enrich import (
     load_config,
     save_config,
 )
-from tests.conftest import MAC_EX, MAC_FLOCK_CAM, make_hit, make_kmz
-
+from tests.conftest import MAC_FLOCK_CAM, make_hit, make_kmz
 
 # ---------------------------------------------------------------------------
 # _BoundedCache
 # ---------------------------------------------------------------------------
+
 
 class TestBoundedCache:
     def test_basic_set_get(self) -> None:
@@ -41,7 +39,7 @@ class TestBoundedCache:
         c = _BoundedCache(maxsize=2)
         c["x"] = 1
         c["y"] = 2
-        c["z"] = 3          # "x" should be evicted
+        c["z"] = 3  # "x" should be evicted
         assert "x" not in c
         assert "y" in c
         assert "z" in c
@@ -49,7 +47,7 @@ class TestBoundedCache:
     def test_update_does_not_duplicate(self) -> None:
         c = _BoundedCache(maxsize=2)
         c["a"] = 1
-        c["a"] = 2          # overwrite, not a new entry
+        c["a"] = 2  # overwrite, not a new entry
         assert len(c) == 1
         assert c["a"] == 2
 
@@ -63,6 +61,7 @@ class TestBoundedCache:
 # ---------------------------------------------------------------------------
 # _dist_m
 # ---------------------------------------------------------------------------
+
 
 class TestDistM:
     def test_same_point_is_zero(self) -> None:
@@ -83,6 +82,7 @@ class TestDistM:
 # Config
 # ---------------------------------------------------------------------------
 
+
 class TestConfig:
     def test_roundtrip(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
         cfg_file = tmp_path / "flock-wigle" / "config.json"
@@ -94,11 +94,15 @@ class TestConfig:
         assert loaded["wigle_api_name"] == "alice"
         assert loaded["wigle_api_token"] == "secret"
 
-    def test_missing_file_returns_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_missing_file_returns_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         monkeypatch.setattr(enrich_mod, "_config_path", lambda: tmp_path / "nonexistent.json")
         assert load_config() == {}
 
-    def test_corrupt_json_returns_empty(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_corrupt_json_returns_empty(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text("not json", encoding="utf-8")
         monkeypatch.setattr(enrich_mod, "_config_path", lambda: cfg_file)
@@ -112,7 +116,9 @@ class TestConfig:
         assert (cfg_file.stat().st_mode & 0o777) == 0o600
 
     @pytest.mark.skipif(sys.platform == "win32", reason="Unix permissions only")
-    def test_load_fixes_world_readable(self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_load_fixes_world_readable(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
         cfg_file = tmp_path / "config.json"
         cfg_file.write_text('{"k":"v"}', encoding="utf-8")
         cfg_file.chmod(0o644)
@@ -125,15 +131,18 @@ class TestConfig:
 # OverpassEnricher
 # ---------------------------------------------------------------------------
 
+
 def _overpass_transport(elements: list) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"elements": elements})
+
     return httpx.MockTransport(handler)
 
 
 def _overpass_error_transport() -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(500)
+
     return httpx.MockTransport(handler)
 
 
@@ -158,10 +167,14 @@ class TestOverpassEnricher:
         assert "Cam1" in detail
 
     async def test_includes_operator_in_detail(self) -> None:
-        nodes = [{
-            "id": 2, "lat": 40.0001, "lon": -74.0001,
-            "tags": {"name": "Cam2", "operator": "Flock Safety"},
-        }]
+        nodes = [
+            {
+                "id": 2,
+                "lat": 40.0001,
+                "lon": -74.0001,
+                "tags": {"name": "Cam2", "operator": "Flock Safety"},
+            }
+        ]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
         result = await e.enrich(make_hit(lat=40.0, lon=-74.0))
         label, detail = result[0]
@@ -201,6 +214,7 @@ class TestOverpassEnricher:
 # ---------------------------------------------------------------------------
 # ALPRWatchEnricher
 # ---------------------------------------------------------------------------
+
 
 class TestALPRWatchEnricher:
     def test_parse_kmz_extracts_cameras(self, sample_kmz_path: Path) -> None:
@@ -274,22 +288,26 @@ class TestALPRWatchEnricher:
 # WiGLEEnricher
 # ---------------------------------------------------------------------------
 
+
 def _wigle_transport(status: int, body: dict) -> httpx.MockTransport:
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(status, json=body)
+
     return httpx.MockTransport(handler)
 
 
 class TestWiGLEEnricher:
     async def test_found_returns_wigle_seen(self) -> None:
         body = {
-            "results": [{
-                "firsttime": "2024-01-15T12:00:00Z",
-                "lasttime":  "2025-06-01T08:00:00Z",
-                "trilat": "40.0",
-                "trilong": "-74.0",
-                "locationData": [{"total": 42}],
-            }]
+            "results": [
+                {
+                    "firsttime": "2024-01-15T12:00:00Z",
+                    "lasttime": "2025-06-01T08:00:00Z",
+                    "trilat": "40.0",
+                    "trilong": "-74.0",
+                    "locationData": [{"total": 42}],
+                }
+            ]
         }
         e = WiGLEEnricher("name", "token", transport=_wigle_transport(200, body))
         result = await e.enrich(make_hit(mac=MAC_FLOCK_CAM))
@@ -316,7 +334,7 @@ class TestWiGLEEnricher:
 
     async def test_auth_header_not_accessible(self) -> None:
         e = WiGLEEnricher("alice", "s3cret", transport=_wigle_transport(200, {"results": []}))
-        assert not hasattr(e, "_auth_header")        # not name-mangled accessible name
+        assert not hasattr(e, "_auth_header")  # not name-mangled accessible name
         assert not hasattr(e, "auth_header")
 
     async def test_request_includes_mac_param(self) -> None:
@@ -333,6 +351,7 @@ class TestWiGLEEnricher:
 
     async def test_rate_limit_respected(self) -> None:
         import time
+
         call_times: list[float] = []
 
         def handler(req: httpx.Request) -> httpx.Response:
@@ -359,6 +378,7 @@ class TestWiGLEEnricher:
 # enrich_hits_async — integration
 # ---------------------------------------------------------------------------
 
+
 class TestEnrichHitsAsync:
     async def test_callback_called_for_each_hit(self) -> None:
         hits = [make_hit() for _ in range(3)]
@@ -379,7 +399,7 @@ class TestEnrichHitsAsync:
         nodes = [{"id": 1, "lat": 40.0001, "lon": -74.0001, "tags": {"name": "TestCam"}}]
         e = OverpassEnricher(transport=_overpass_transport(nodes))
         await enrich_hits_async([hit], [e])
-        labels = {l for l, _ in hit.signals}
+        labels = {lbl for lbl, _ in hit.signals}
         assert "OSM_ALPR_NEARBY" in labels
 
     async def test_enricher_exception_does_not_abort(self) -> None:
@@ -406,6 +426,7 @@ class TestEnrichHitsAsync:
 # build_enrichers
 # ---------------------------------------------------------------------------
 
+
 class TestBuildEnrichers:
     def test_default_includes_overpass_and_alprwatch(self) -> None:
         enrichers = build_enrichers()
@@ -418,10 +439,8 @@ class TestBuildEnrichers:
         names = [e.name for e in enrichers]
         assert "WiGLE" in names
 
-    def test_wigle_excluded_when_no_credentials(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.delenv("WIGLE_API_NAME",  raising=False)
+    def test_wigle_excluded_when_no_credentials(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("WIGLE_API_NAME", raising=False)
         monkeypatch.delenv("WIGLE_API_TOKEN", raising=False)
         monkeypatch.setattr(enrich_mod, "load_config", lambda: {})
         enrichers = build_enrichers()
@@ -429,7 +448,7 @@ class TestBuildEnrichers:
         assert "WiGLE" not in names
 
     def test_wigle_reads_env_vars(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        monkeypatch.setenv("WIGLE_API_NAME",  "envuser")
+        monkeypatch.setenv("WIGLE_API_NAME", "envuser")
         monkeypatch.setenv("WIGLE_API_TOKEN", "envtoken")
         enrichers = build_enrichers()
         names = [e.name for e in enrichers]

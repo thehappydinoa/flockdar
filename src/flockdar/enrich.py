@@ -35,9 +35,10 @@ import xml.etree.ElementTree as ET
 import zipfile
 from abc import ABC, abstractmethod
 from collections import OrderedDict
+from collections.abc import Callable
 from math import cos, radians, sqrt
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import httpx
 
@@ -48,27 +49,30 @@ from .detect import Hit
 # ---------------------------------------------------------------------------
 
 Signal = tuple[str, str]
-_Camera = tuple[float, float, str]   # (lat, lon, name)
+_Camera = tuple[float, float, str]  # (lat, lon, name)
 
 # Signal labels produced by enrichers (used by TUI to display enrichment column)
-ENRICHMENT_SIGNAL_LABELS: frozenset[str] = frozenset({
-    "OSM_ALPR_NEARBY",
-    "ALPRWATCH_NEARBY",
-    "WIGLE_SEEN",
-})
+ENRICHMENT_SIGNAL_LABELS: frozenset[str] = frozenset(
+    {
+        "OSM_ALPR_NEARBY",
+        "ALPRWATCH_NEARBY",
+        "WIGLE_SEEN",
+    }
+)
 
 _UA = "flock-wigle-detect/1.0"
 
 # Per-enricher cache TTLs (seconds)
 _ENRICHER_TTLS: dict[str, float] = {
-    "OSM/DeFlock": 7 * 86_400,   # OSM changes slowly
-    "ALPRWatch":   86_400,        # matches KMZ refresh cadence
-    "WiGLE":       7 * 86_400,
+    "OSM/DeFlock": 7 * 86_400,  # OSM changes slowly
+    "ALPRWatch": 86_400,  # matches KMZ refresh cadence
+    "WiGLE": 7 * 86_400,
 }
 
 # ---------------------------------------------------------------------------
 # Platform paths
 # ---------------------------------------------------------------------------
+
 
 def _cache_dir() -> Path:
     if sys.platform == "win32":
@@ -94,6 +98,7 @@ def _config_path() -> Path:
 # Config
 # ---------------------------------------------------------------------------
 
+
 def load_config() -> dict[str, str]:
     p = _config_path()
     if not p.exists():
@@ -117,6 +122,7 @@ def save_config(cfg: dict[str, str]) -> None:
 # ---------------------------------------------------------------------------
 # Bounded LRU cache
 # ---------------------------------------------------------------------------
+
 
 class _EnrichCache:
     """MAC-keyed disk cache for enrichment results, keyed by enricher name.
@@ -164,11 +170,11 @@ class _EnrichCache:
             pass
 
 
-def load_enrich_cache() -> "_EnrichCache":
+def load_enrich_cache() -> _EnrichCache:
     return _EnrichCache(_cache_dir() / "enrichment-cache.json")
 
 
-def apply_cached_enrichment(hits: list[Hit], cache: "_EnrichCache") -> None:
+def apply_cached_enrichment(hits: list[Hit], cache: _EnrichCache) -> None:
     """Apply non-expired cached enrichment signals to hits — no network calls."""
     for hit in hits:
         if not hit.mac:
@@ -197,6 +203,7 @@ class _BoundedCache(OrderedDict[Any, Any]):
 # Shared helpers
 # ---------------------------------------------------------------------------
 
+
 def _dist_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlat = (lat2 - lat1) * 111_320
     dlon = (lon2 - lon1) * 111_320 * cos(radians((lat1 + lat2) / 2))
@@ -219,6 +226,7 @@ def _make_client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.Asy
 # Base class
 # ---------------------------------------------------------------------------
 
+
 class Enricher(ABC):
     name: str
 
@@ -234,7 +242,7 @@ class Enricher(ABC):
 # Overpass (DeFlock OSM) enricher
 # ---------------------------------------------------------------------------
 
-_OVERPASS_PRIMARY  = "https://overpass.deflock.org/api/interpreter"
+_OVERPASS_PRIMARY = "https://overpass.deflock.org/api/interpreter"
 _OVERPASS_FALLBACK = "https://overpass-api.de/api/interpreter"
 _ALPR_QUERY_TMPL = (
     "[out:json][timeout:15];\n"
@@ -255,7 +263,7 @@ class OverpassEnricher(Enricher):
         radius_m: int = 150,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        cache: "_EnrichCache | None" = None,
+        cache: _EnrichCache | None = None,
     ) -> None:
         self._radius = radius_m
         self._transport = transport
@@ -304,9 +312,9 @@ class OverpassEnricher(Enricher):
 # ALPRWatch KMZ enricher
 # ---------------------------------------------------------------------------
 
-_ALPRWATCH_URL   = "https://alprwatch.org/pub/avoidance/alprwatch-avoidance-alpr-latest.kmz"
+_ALPRWATCH_URL = "https://alprwatch.org/pub/avoidance/alprwatch-avoidance-alpr-latest.kmz"
 _KMZ_CACHE_TTL_S = 86_400  # 24 hours
-_KML_NS          = "{http://www.opengis.net/kml/2.2}"
+_KML_NS = "{http://www.opengis.net/kml/2.2}"
 
 
 class ALPRWatchEnricher(Enricher):
@@ -317,7 +325,7 @@ class ALPRWatchEnricher(Enricher):
         radius_m: float = 150.0,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        cache: "_EnrichCache | None" = None,
+        cache: _EnrichCache | None = None,
     ) -> None:
         self._radius = radius_m
         self._transport = transport
@@ -354,7 +362,8 @@ class ALPRWatchEnricher(Enricher):
 
         result: list[Signal] = (
             [("ALPRWATCH_NEARBY", f"{best_name} {best_dist:.0f}m")]
-            if best_dist <= self._radius else []
+            if best_dist <= self._radius
+            else []
         )
         if self._disk_cache is not None:
             self._disk_cache.set(hit.mac, self.name, result)
@@ -367,8 +376,7 @@ class ALPRWatchEnricher(Enricher):
             self._loaded = True
             kmz_path = _cache_dir() / "alprwatch-latest.kmz"
             stale = (
-                not kmz_path.exists()
-                or (time.time() - kmz_path.stat().st_mtime) > _KMZ_CACHE_TTL_S
+                not kmz_path.exists() or (time.time() - kmz_path.stat().st_mtime) > _KMZ_CACHE_TTL_S
             )
             if stale:
                 await self._download(kmz_path)
@@ -430,7 +438,7 @@ class ALPRWatchEnricher(Enricher):
 # WiGLE API enricher
 # ---------------------------------------------------------------------------
 
-_WIGLE_BASE    = "https://api.wigle.net/api/v2"
+_WIGLE_BASE = "https://api.wigle.net/api/v2"
 _WIGLE_RATELIM = 6.5  # seconds between requests (free tier ≈ 10/min)
 
 
@@ -443,7 +451,7 @@ class WiGLEEnricher(Enricher):
         api_token: str,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
-        cache: "_EnrichCache | None" = None,
+        cache: _EnrichCache | None = None,
     ) -> None:
         cred = base64.b64encode(f"{api_name}:{api_token}".encode()).decode()
         self.__auth_header = f"Basic {cred}"  # name-mangled; not externally readable
@@ -495,7 +503,7 @@ class WiGLEEnricher(Enricher):
         loc: list[dict[str, Any]] = net.get("locationData") or []
         count: Any = loc[0].get("total", "?") if loc else "?"
         first = (net.get("firsttime") or "?")[:10]
-        last  = (net.get("lasttime")  or "?")[:10]
+        last = (net.get("lasttime") or "?")[:10]
         detail = f"first={first} last={last} count={count}"
         trilat, trilong = net.get("trilat", ""), net.get("trilong", "")
         if trilat and trilong:
@@ -507,12 +515,13 @@ class WiGLEEnricher(Enricher):
 # Top-level API
 # ---------------------------------------------------------------------------
 
+
 def build_enrichers(
     wigle_name: str = "",
     wigle_token: str = "",
     overpass: bool = True,
     alprwatch: bool = True,
-    cache: "_EnrichCache | None" = None,
+    cache: _EnrichCache | None = None,
 ) -> list[Enricher]:
     """Assemble enabled enrichers from args, env vars, and config file."""
     enrichers: list[Enricher] = []
@@ -521,11 +530,11 @@ def build_enrichers(
     if alprwatch:
         enrichers.append(ALPRWatchEnricher(cache=cache))
 
-    name  = wigle_name  or os.environ.get("WIGLE_API_NAME",  "")
+    name = wigle_name or os.environ.get("WIGLE_API_NAME", "")
     token = wigle_token or os.environ.get("WIGLE_API_TOKEN", "")
     if not (name and token):
         cfg = load_config()
-        name  = name  or cfg.get("wigle_api_name",  "")
+        name = name or cfg.get("wigle_api_name", "")
         token = token or cfg.get("wigle_api_token", "")
     if name and token:
         enrichers.append(WiGLEEnricher(name, token, cache=cache))
@@ -537,7 +546,7 @@ async def enrich_hits_async(
     hits: list[Hit],
     enrichers: list[Enricher],
     callback: Callable[[Hit], None] | None = None,
-    cache: "_EnrichCache | None" = None,
+    cache: _EnrichCache | None = None,
 ) -> None:
     """
     Enrich all hits concurrently.
@@ -546,6 +555,7 @@ async def enrich_hits_async(
     WiGLE calls are serialised internally via asyncio.Lock + rate limiting.
     Calls callback(hit) after each hit finishes so the UI can update live.
     """
+
     async def _process(hit: Hit) -> None:
         if hit.lat or hit.lon:
             results = await asyncio.gather(

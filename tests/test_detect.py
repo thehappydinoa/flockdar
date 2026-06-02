@@ -2,12 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
-from flockdar import signatures as sig
-from flockdar.detect import Hit, Cluster, analyze, cluster_hits, single_clusters
+from flockdar.detect import Cluster, Hit, analyze, cluster_hits, single_clusters
 from tests.conftest import (
-    MAC_BLE_NAME,
     MAC_DIRECT,
     MAC_EERO,
     MAC_EERO_HIDDEN,
@@ -25,37 +21,37 @@ from tests.conftest import (
     make_hit,
 )
 
-
 # ---------------------------------------------------------------------------
 # analyze() — individual signal firing
 # ---------------------------------------------------------------------------
+
 
 class TestAnalyzeFlockCamera:
     def test_mac_validated_ssid_is_high(self) -> None:
         h = analyze(mac=MAC_FLOCK_CAM, ssid=SSID_FLOCK_CAM, type="W")
         assert h is not None
         assert h.confidence == 3
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_CAMERA_SSID" in labels
 
     def test_oui_corroborated_ssid_is_high(self) -> None:
         h = analyze(mac=MAC_FLOCK_CHIP, ssid="Flock-AABBCC", type="W")
         assert h is not None
         assert h.confidence == 3
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_CAMERA_SSID" in labels
 
     def test_unknown_oui_ssid_pattern_is_medium(self) -> None:
         h = analyze(mac=MAC_EX, ssid="Flock-AABBCC", type="W")
         assert h is not None
         assert h.confidence == 2
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_CAMERA_SSID_PATTERN" in labels
 
     def test_wrong_mac_suffix_unknown_oui(self) -> None:
         h = analyze(mac="02:00:00:00:00:04", ssid="Flock-AABBCC", type="W")
         assert h is not None
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_CAMERA_SSID_PATTERN" in labels
 
 
@@ -64,14 +60,14 @@ class TestAnalyzeFlocknet:
         h = analyze(mac=MAC_EERO, ssid="flocknet", type="W")
         assert h is not None
         assert h.confidence == 3
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCKNET_SSID" in labels
 
     def test_eero_hidden_ssid_is_medium(self) -> None:
         h = analyze(mac=MAC_EERO_HIDDEN, ssid="", type="W")
         assert h is not None
         assert h.confidence == 1  # BACKHAUL_OUI_HIDDEN is LOW tier
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "BACKHAUL_OUI_HIDDEN" in labels
 
     def test_eero_named_non_flock_ssid_returns_none(self) -> None:
@@ -84,20 +80,22 @@ class TestAnalyzePenguin:
         h = analyze(mac=MAC_PENGUIN, ssid="Penguin-1069698414", type="E")
         assert h is not None
         assert h.confidence == 3
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "PENGUIN_BLE_SSID" in labels
 
     def test_mfgrid_2504_is_medium(self) -> None:
         h = analyze(mac=MAC_MFGRID, ssid="1069698414", type="E", mfgrid=2504)
         assert h is not None
         assert h.confidence == 2
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_MFGRID" in labels
 
     def test_penguin_ssid_and_mfgrid_is_high(self) -> None:
         h = analyze(
-            mac=MAC_PENGUIN, ssid="Penguin-1069698414",
-            type="E", mfgrid=2504,
+            mac=MAC_PENGUIN,
+            ssid="Penguin-1069698414",
+            type="E",
+            mfgrid=2504,
         )
         assert h is not None
         assert h.confidence == 3
@@ -106,50 +104,58 @@ class TestAnalyzePenguin:
 class TestAnalyzeWiFiFingerprint:
     def test_oui_wpa2_channel1_is_medium(self) -> None:
         h = analyze(
-            mac="70:c9:4e:00:00:03", ssid="",
-            type="W", frequency=2412,
+            mac="70:c9:4e:00:00:03",
+            ssid="",
+            type="W",
+            frequency=2412,
             capabilities="[WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS]",
         )
         assert h is not None
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_WIFI_FP" in labels
 
     def test_wrong_capabilities_no_fp(self) -> None:
         h = analyze(
-            mac="70:c9:4e:00:00:03", ssid="",
-            type="W", frequency=2412,
+            mac="70:c9:4e:00:00:03",
+            ssid="",
+            type="W",
+            frequency=2412,
             capabilities="[WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS][WPS]",
         )
         if h:
-            labels = {l for l, _ in h.signals}
+            labels = {lbl for lbl, _ in h.signals}
             assert "FLOCK_WIFI_FP" not in labels
 
     def test_wrong_channel_no_fp(self) -> None:
         h = analyze(
-            mac="70:c9:4e:00:00:03", ssid="",
-            type="W", frequency=5765,
+            mac="70:c9:4e:00:00:03",
+            ssid="",
+            type="W",
+            frequency=5765,
             capabilities="[WPA2-PSK-CCMP-128][RSN-PSK-CCMP-128][ESS]",
         )
         if h:
-            labels = {l for l, _ in h.signals}
+            labels = {lbl for lbl, _ in h.signals}
             assert "FLOCK_WIFI_FP" not in labels
 
 
 class TestAnalyzeRavenUUIDs:
     def test_raven_uuid_high_is_high(self) -> None:
         h = analyze(
-            mac=MAC_SURVEILLANCE, ssid="FS Ext Battery",
+            mac=MAC_SURVEILLANCE,
+            ssid="FS Ext Battery",
             type="E",
             services="00003100-0000-1000-8000-00805f9b34fb",
         )
         assert h is not None
         assert h.confidence == 3
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "RAVEN_UUID_HIGH" in labels
 
     def test_old_uuid_alone_is_low(self) -> None:
         h = analyze(
-            mac=MAC_EX, ssid="SomeDevice",
+            mac=MAC_EX,
+            ssid="SomeDevice",
             type="E",
             services="0000180a-0000-1000-8000-00805f9b34fb",
         )
@@ -162,7 +168,7 @@ class TestAnalyzeDirectOUI:
         h = analyze(mac=MAC_DIRECT, ssid="", type="W")
         assert h is not None
         assert h.confidence == 3
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "FLOCK_DIRECT_OUI" in labels
 
 
@@ -181,13 +187,14 @@ class TestAnalyzeSurveillanceOUI:
         h = analyze(mac=MAC_RAVEN, ssid="", type="W")
         assert h is not None
         assert h.confidence == 1
-        labels = {l for l, _ in h.signals}
+        labels = {lbl for lbl, _ in h.signals}
         assert "SURVEILLANCE_OUI" in labels
 
 
 # ---------------------------------------------------------------------------
 # Hit.add_signal deduplication
 # ---------------------------------------------------------------------------
+
 
 class TestHitSignals:
     def test_no_duplicates(self) -> None:
@@ -214,6 +221,7 @@ class TestHitSignals:
 # ---------------------------------------------------------------------------
 # cluster_hits()
 # ---------------------------------------------------------------------------
+
 
 class TestClusterHits:
     def test_empty(self) -> None:
@@ -267,6 +275,7 @@ class TestSingleClusters:
 # ---------------------------------------------------------------------------
 # Cluster properties
 # ---------------------------------------------------------------------------
+
 
 class TestClusterProperties:
     def _cluster_with_hits(self, *hits: Hit) -> Cluster:

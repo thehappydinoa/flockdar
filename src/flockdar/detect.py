@@ -9,11 +9,12 @@ import csv
 import gzip
 import sqlite3
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from math import cos, radians, sqrt
 from pathlib import Path
-from typing import Any, Iterator
+from typing import Any
 
 from . import signatures as sig
 
@@ -45,11 +46,15 @@ class Hit:
     @property
     def confidence(self) -> int:
         labels = {label for label, _ in self.signals}
-        if labels & {"FLOCK_DIRECT_OUI", "RAVEN_UUID_HIGH", "FLOCKNET_SSID",
-                     "FLOCK_CAMERA_SSID", "PENGUIN_BLE_SSID"}:
+        if labels & {
+            "FLOCK_DIRECT_OUI",
+            "RAVEN_UUID_HIGH",
+            "FLOCKNET_SSID",
+            "FLOCK_CAMERA_SSID",
+            "PENGUIN_BLE_SSID",
+        }:
             return 3
-        if labels & {"FLOCK_CAMERA_SSID_PATTERN", "BLE_NAME",
-                     "FLOCK_WIFI_FP", "FLOCK_MFGRID"}:
+        if labels & {"FLOCK_CAMERA_SSID_PATTERN", "BLE_NAME", "FLOCK_WIFI_FP", "FLOCK_MFGRID"}:
             return 2
         return 1
 
@@ -114,9 +119,9 @@ class Cluster:
     def enrichment_label(self, enrichment_signals: frozenset[str]) -> str:
         """Compact string of enrichment signals present across all hits in the cluster."""
         icons = {
-            "OSM_ALPR_NEARBY":  "🗺",
+            "OSM_ALPR_NEARBY": "🗺",
             "ALPRWATCH_NEARBY": "📍",
-            "WIGLE_SEEN":       "📡",
+            "WIGLE_SEEN": "📡",
         }
         found: list[str] = []
         seen: set[str] = set()
@@ -140,6 +145,7 @@ class Cluster:
 # Clustering
 # ---------------------------------------------------------------------------
 
+
 def _dist_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     dlat = (lat2 - lat1) * 111_320
     dlon = (lon2 - lon1) * 111_320 * cos(radians((lat1 + lat2) / 2))
@@ -159,9 +165,8 @@ def cluster_hits(hits: list[Hit], radius_m: float = 75.0) -> list[Cluster]:
     for i in range(len(hits)):
         for j in range(i + 1, len(hits)):
             hi, hj = hits[i], hits[j]
-            if (hi.lat or hi.lon) and (hj.lat or hj.lon):
-                if _dist_m(hi.lat, hi.lon, hj.lat, hj.lon) <= radius_m:
-                    parent[find(i)] = find(j)
+            if (hi.lat or hi.lon) and (hj.lat or hj.lon) and _dist_m(hi.lat, hi.lon, hj.lat, hj.lon) <= radius_m:
+                parent[find(i)] = find(j)
 
     groups: dict[int, list[Hit]] = {}
     for i, h in enumerate(hits):
@@ -182,6 +187,7 @@ def single_clusters(hits: list[Hit]) -> list[Cluster]:
 # Detection
 # ---------------------------------------------------------------------------
 
+
 def _oui(mac: str) -> str:
     return mac.lower()[:8]
 
@@ -189,7 +195,7 @@ def _oui(mac: str) -> str:
 def analyze(  # noqa: PLR0912 (many branches by design)
     mac: str,
     ssid: str,
-    type: str = "",           # noqa: A002 — matches WiGLE field name
+    type: str = "",  # noqa: A002 — matches WiGLE field name
     device_type: str = "",
     lat: float = 0.0,
     lon: float = 0.0,
@@ -206,17 +212,24 @@ def analyze(  # noqa: PLR0912 (many branches by design)
     ssid_l = (ssid or "").lower().strip()
     svc_set = set((services or "").lower().split())
     is_wifi = device_type in ("W", "WIFI")
-    is_ble  = device_type in ("B", "E", "BLE", "BT")
+    is_ble = device_type in ("B", "E", "BLE", "BT")
     hit: Hit | None = None
 
     def h() -> Hit:
         nonlocal hit
         if hit is None:
             hit = Hit(
-                mac=mac, ssid=ssid or "", device_type=device_type,
-                lat=lat, lon=lon, rssi=rssi, first_seen=first_seen,
-                services=services or "", frequency=frequency,
-                capabilities=capabilities or "", mfgrid=mfgrid,
+                mac=mac,
+                ssid=ssid or "",
+                device_type=device_type,
+                lat=lat,
+                lon=lon,
+                rssi=rssi,
+                first_seen=first_seen,
+                services=services or "",
+                frequency=frequency,
+                capabilities=capabilities or "",
+                mfgrid=mfgrid,
             )
         return hit
 
@@ -234,7 +247,7 @@ def analyze(  # noqa: PLR0912 (many branches by design)
 
     if is_wifi:
         if sig.FLOCK_CAMERA_SSID_RE.match(ssid or ""):
-            mac_suffix  = mac.replace(":", "")[-6:].upper()
+            mac_suffix = mac.replace(":", "")[-6:].upper()
             ssid_suffix = (ssid or "").split("-")[-1].upper()
             if mac_suffix and mac_suffix == ssid_suffix:
                 h().add_signal("FLOCK_CAMERA_SSID", ssid)
@@ -274,9 +287,7 @@ def analyze(  # noqa: PLR0912 (many branches by design)
         h().add_signal("RAVEN_UUID_HIGH", ", ".join(sorted(matched_high)))
 
     if not is_wifi:
-        meaningful = (svc_set & sig.RAVEN_SERVICES_OLD) - {
-            "0000180a-0000-1000-8000-00805f9b34fb"
-        }
+        meaningful = (svc_set & sig.RAVEN_SERVICES_OLD) - {"0000180a-0000-1000-8000-00805f9b34fb"}
         if meaningful:
             h().add_signal("RAVEN_UUID_OLD", ", ".join(sorted(meaningful)))
 
@@ -290,6 +301,7 @@ def analyze(  # noqa: PLR0912 (many branches by design)
 # Readers
 # ---------------------------------------------------------------------------
 
+
 def _parse_wigle_time(raw) -> str:
     """Convert WiGLE's lasttime (Unix ms or s integer) to 'YYYY-MM-DD HH:MM:SS' UTC."""
     if not raw:
@@ -298,7 +310,7 @@ def _parse_wigle_time(raw) -> str:
         ts = int(raw)
         if ts > 1e10:  # milliseconds → seconds
             ts //= 1000
-        return datetime.fromtimestamp(ts, tz=timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        return datetime.fromtimestamp(ts, tz=UTC).strftime("%Y-%m-%d %H:%M:%S")
     except (ValueError, OSError):
         return str(raw)
 
@@ -314,17 +326,17 @@ def read_sqlite(path: Path) -> Iterator[Record]:
     try:
         for row in cur.fetchall():
             yield {
-                "mac":          row["bssid"] or "",
-                "ssid":         row["ssid"] or "",
-                "type":         row["type"] or "",
-                "rssi":         row["bestlevel"] or 0,
-                "lat":          float(row["bestlat"] or 0),
-                "lon":          float(row["bestlon"] or 0),
-                "first_seen":   _parse_wigle_time(row["lasttime"]),
-                "services":     row["service"] or "",
-                "frequency":    row["frequency"] or 0,
+                "mac": row["bssid"] or "",
+                "ssid": row["ssid"] or "",
+                "type": row["type"] or "",
+                "rssi": row["bestlevel"] or 0,
+                "lat": float(row["bestlat"] or 0),
+                "lon": float(row["bestlon"] or 0),
+                "first_seen": _parse_wigle_time(row["lasttime"]),
+                "services": row["service"] or "",
+                "frequency": row["frequency"] or 0,
                 "capabilities": row["capabilities"] or "",
-                "mfgrid":       int(row["mfgrid"] or 0),
+                "mfgrid": int(row["mfgrid"] or 0),
             }
     finally:
         conn.close()
@@ -339,17 +351,17 @@ def read_csv(path: Path) -> Iterator[Record]:
         reader = csv.DictReader(f)
         for row in reader:
             yield {
-                "mac":          row.get("MAC", ""),
-                "ssid":         row.get("SSID", ""),
-                "type":         row.get("Type", ""),
-                "rssi":         int(row.get("RSSI", 0) or 0),
-                "lat":          float(row.get("CurrentLatitude", 0) or 0),
-                "lon":          float(row.get("CurrentLongitude", 0) or 0),
-                "first_seen":   row.get("FirstSeen", ""),
-                "services":     "",
-                "frequency":    int(row.get("Frequency", 0) or 0),
+                "mac": row.get("MAC", ""),
+                "ssid": row.get("SSID", ""),
+                "type": row.get("Type", ""),
+                "rssi": int(row.get("RSSI", 0) or 0),
+                "lat": float(row.get("CurrentLatitude", 0) or 0),
+                "lon": float(row.get("CurrentLongitude", 0) or 0),
+                "first_seen": row.get("FirstSeen", ""),
+                "services": "",
+                "frequency": int(row.get("Frequency", 0) or 0),
                 "capabilities": row.get("AuthMode", ""),
-                "mfgrid":       0,
+                "mfgrid": 0,
             }
 
 
@@ -384,53 +396,81 @@ def run_detection(path: Path, min_confidence: int = 1) -> tuple[list[Hit], int]:
 # Export helpers
 # ---------------------------------------------------------------------------
 
+
 def export_csv(hits: list[Hit], path: str) -> None:
     with open(path, "w", newline="", encoding="utf-8") as f:
         w = csv.writer(f)
-        w.writerow([
-            "confidence", "type", "mac", "ssid", "lat", "lon",
-            "rssi", "freq_mhz", "capabilities", "mfgrid",
-            "signals", "services", "first_seen",
-        ])
+        w.writerow(
+            [
+                "confidence",
+                "type",
+                "mac",
+                "ssid",
+                "lat",
+                "lon",
+                "rssi",
+                "freq_mhz",
+                "capabilities",
+                "mfgrid",
+                "signals",
+                "services",
+                "first_seen",
+            ]
+        )
         for h in hits:
-            w.writerow([
-                h.confidence_label, h.device_type, h.mac, h.ssid,
-                h.lat, h.lon, h.rssi, h.frequency, h.capabilities,
-                h.mfgrid, h.signals_str(), h.services, h.first_seen,
-            ])
+            w.writerow(
+                [
+                    h.confidence_label,
+                    h.device_type,
+                    h.mac,
+                    h.ssid,
+                    h.lat,
+                    h.lon,
+                    h.rssi,
+                    h.frequency,
+                    h.capabilities,
+                    h.mfgrid,
+                    h.signals_str(),
+                    h.services,
+                    h.first_seen,
+                ]
+            )
 
 
 def export_geojson(hits: list[Hit], path: str) -> None:
     """Export hits as a GeoJSON FeatureCollection (EPSG:4326)."""
     import json as _json
+
     features = []
     for h in hits:
         if h.lat == 0.0 and h.lon == 0.0:
             continue
-        features.append({
-            "type": "Feature",
-            "geometry": {"type": "Point", "coordinates": [h.lon, h.lat]},
-            "properties": {
-                "mac":          h.mac,
-                "ssid":         h.ssid,
-                "device_type":  h.device_type,
-                "confidence":   h.confidence_label,
-                "confidence_n": h.confidence,
-                "rssi":         h.rssi,
-                "frequency_mhz": h.frequency,
-                "first_seen":   h.first_seen,
-                "signals":      h.signals_str(),
-                "capabilities": h.capabilities,
-                "mfgrid":       h.mfgrid,
-            },
-        })
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": {"type": "Point", "coordinates": [h.lon, h.lat]},
+                "properties": {
+                    "mac": h.mac,
+                    "ssid": h.ssid,
+                    "device_type": h.device_type,
+                    "confidence": h.confidence_label,
+                    "confidence_n": h.confidence,
+                    "rssi": h.rssi,
+                    "frequency_mhz": h.frequency,
+                    "first_seen": h.first_seen,
+                    "signals": h.signals_str(),
+                    "capabilities": h.capabilities,
+                    "mfgrid": h.mfgrid,
+                },
+            }
+        )
     with open(path, "w", encoding="utf-8") as f:
         _json.dump({"type": "FeatureCollection", "features": features}, f, indent=2)
 
 
 def export_kml(hits: list[Hit], path: str) -> None:
     colors = {3: "ff0000ff", 2: "ff00aaff", 1: "ff00ffff"}
-    icons  = {3: "1",        2: "2",        1: "3"}
+    icons = {3: "1", 2: "2", 1: "3"}
     lines = [
         '<?xml version="1.0" encoding="UTF-8"?>',
         '<kml xmlns="http://www.opengis.net/kml/2.2">',
@@ -440,7 +480,7 @@ def export_kml(hits: list[Hit], path: str) -> None:
     for level in (3, 2, 1):
         lines.append(
             f'<Style id="conf{level}"><IconStyle><color>{colors[level]}</color>'
-            f'<Icon><href>http://maps.google.com/mapfiles/kml/paddle/{icons[level]}.png'
+            f"<Icon><href>http://maps.google.com/mapfiles/kml/paddle/{icons[level]}.png"
             f"</href></Icon></IconStyle></Style>"
         )
     for h in hits:
