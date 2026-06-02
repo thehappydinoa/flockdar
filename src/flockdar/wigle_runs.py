@@ -2,12 +2,12 @@
 Download all your WiGLE-uploaded scan runs and check them against flockdar detection.
 
 Workflow:
-  1. Fetch your transaction list from /api/v2/file/transactions (paginated, ~1 req)
-  2. For each transaction, download /api/v2/file/kml/{transid} if not already cached
-  3. Run detection on every cached KML and merge results by MAC
-  4. Print a summary table; optionally write hits to --out CSV or SQLite
+  1. Fetch your transaction list from /api/v2/file/transactions (paginated)
+  2. For each transaction, download /api/v2/file/csv/{transid} if not already cached
+  3. Run detection on every cached CSV and merge results by MAC
+  4. Print a summary table; optionally write hits to --out CSV or KML
 
-Cache: ~/.cache/flockdar/runs/{transid}.kml
+Cache: ~/.cache/flockdar/runs/{transid}.csv
 Credentials: same as enrich.py — env WIGLE_API_NAME/WIGLE_API_TOKEN or
              ~/.config/flockdar/config.json
 """
@@ -20,6 +20,7 @@ import os
 import sys
 import time
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -29,7 +30,8 @@ from .enrich import _cache_dir, load_config
 _WIGLE_BASE = "https://api.wigle.net/api/v2"
 _UA = "flockdar/1.0"
 _PAGE_SIZE = 100
-_DL_DELAY_S = 2.0  # seconds between KML downloads
+_DL_DELAY_S = 2.0   # seconds between CSV downloads
+_DL_TIMEOUT = 120.0  # WiGLE generates files on-demand; can be slow
 
 
 # ---------------------------------------------------------------------------
@@ -43,8 +45,8 @@ def _runs_dir() -> Path:
     return d
 
 
-def _kml_path(transid: str) -> Path:
-    return _runs_dir() / f"{transid}.kml"
+def _csv_path(transid: str) -> Path:
+    return _runs_dir() / f"{transid}.csv"
 
 
 # ---------------------------------------------------------------------------
@@ -57,11 +59,10 @@ def _auth_header(api_name: str, api_token: str) -> str:
     return f"Basic {cred}"
 
 
-def list_transactions(client: httpx.Client) -> list[dict]:
+def list_transactions(client: httpx.Client) -> list[dict[str, Any]]:
     """Fetch all upload transactions, handling pagination."""
-    transactions: list[dict] = []
+    transactions: list[dict[str, Any]] = []
     page_start = 0
-    total: int | None = None
 
     while True:
         resp = client.get(
@@ -74,14 +75,12 @@ def list_transactions(client: httpx.Client) -> list[dict]:
         if not data.get("success"):
             raise RuntimeError(f"WiGLE API error: {data}")
 
-        batch = data.get("transactions") or []
+        batch: list[dict[str, Any]] = data.get("results") or []
         transactions.extend(batch)
-
-        if total is None:
-            total = int(data.get("totalTransCount", 0))
-
         page_start += len(batch)
-        if not batch or page_start >= total:
+
+        # Stop when we get a partial page
+        if len(batch) < _PAGE_SIZE:
             break
 
         time.sleep(0.5)
@@ -89,9 +88,9 @@ def list_transactions(client: httpx.Client) -> list[dict]:
     return transactions
 
 
-def download_kml(client: httpx.Client, transid: str, dest: Path) -> None:
-    """Download the KML for one transaction and write it to dest."""
-    resp = client.get(f"{_WIGLE_BASE}/file/kml/{transid}")
+def download_csv(client: httpx.Client, transid: str, dest: Path) -> None:
+    """Download the CSV for one transaction and write it to dest."""
+    resp = client.get(f"{_WIGLE_BASE}/file/csv/{transid}")
     resp.raise_for_status()
     dest.write_bytes(resp.content)
 
@@ -121,8 +120,8 @@ def sync_and_detect(
             sys.exit(f"WiGLE API error {exc.response.status_code}: {exc.response.text[:200]}")
 
     total = len(transactions)
-    cached = [t for t in transactions if _kml_path(t["transid"]).exists()]
-    to_download = [t for t in transactions if not _kml_path(t["transid"]).exists()]
+    cached = [t for t in transactions if _csv_path(t["transid"]).exists()]
+    to_download = [t for t in transactions if not _csv_path(t["transid"]).exists()]
 
     print(
         f"  {total} run(s) found  •  {len(cached)} cached  •  {len(to_download)} to download"
@@ -131,8 +130,8 @@ def sync_and_detect(
     if dry_run:
         print("\nTransactions:")
         for t in transactions:
-            marker = "✓" if _kml_path(t["transid"]).exists() else "↓"
-            obs = t.get("observations", "?")
+            marker = "✓" if _csv_path(t["transid"]).exists() else "↓"
+            obs = t.get("total", t.get("totalGps", "?"))
             fname = t.get("fileName", t["transid"])
             print(f"  [{marker}] {t['transid']}  obs={obs}  {fname}")
         return
@@ -140,41 +139,52 @@ def sync_and_detect(
     if to_download:
         cost_note = f"{len(to_download)} API call(s)"
         if not yes:
-            ans = input(f"\nDownload {len(to_download)} new KML(s)? ({cost_note})  [y/N] ").strip()
+            ans = input(f"\nDownload {len(to_download)} new CSV(s)? ({cost_note})  [y/N] ").strip()
             if ans.lower() not in ("y", "yes"):
                 print("Aborted.")
                 return
 
-        with httpx.Client(headers=headers, timeout=60) as client:
+        with httpx.Client(
+            headers=headers, timeout=httpx.Timeout(30, read=_DL_TIMEOUT)
+        ) as client:
             for i, t in enumerate(to_download, 1):
                 transid = t["transid"]
-                obs = t.get("observations", "?")
-                print(f"  [{i}/{len(to_download)}] Downloading {transid} (obs={obs})…", end=" ", flush=True)
-                dest = _kml_path(transid)
+                obs = t.get("total", t.get("totalGps", "?"))
+                print(
+                    f"  [{i}/{len(to_download)}] Downloading {transid} (obs={obs})…",
+                    end=" ",
+                    flush=True,
+                )
+                dest = _csv_path(transid)
                 try:
-                    download_kml(client, transid, dest)
+                    download_csv(client, transid, dest)
                     print(f"saved ({dest.stat().st_size // 1024} KB)")
                 except httpx.HTTPStatusError as exc:
                     print(f"FAILED ({exc.response.status_code})")
                     dest.unlink(missing_ok=True)
+                except httpx.ReadTimeout:
+                    print("TIMEOUT — skipping")
+                    dest.unlink(missing_ok=True)
                 if i < len(to_download):
                     time.sleep(_DL_DELAY_S)
 
-    # Run detection on all cached KMLs
+    # Run detection across all cached CSVs, tracking per-MAC run counts in one pass
     print("\nRunning detection across all cached runs…")
     seen: dict[str, Hit] = {}
+    mac_runs: dict[str, int] = {}
     total_records = 0
     files_scanned = 0
 
     for t in transactions:
-        kml = _kml_path(t["transid"])
-        if not kml.exists():
+        csv_file = _csv_path(t["transid"])
+        if not csv_file.exists():
             continue
-        hits, n = run_detection(kml, min_confidence=min_confidence)
+        hits, n = run_detection(csv_file, min_confidence=min_confidence)
         total_records += n
         files_scanned += 1
         for h in hits:
             mac = h.mac.lower()
+            mac_runs[mac] = mac_runs.get(mac, 0) + 1
             if mac not in seen:
                 seen[mac] = h
             else:
@@ -189,7 +199,7 @@ def sync_and_detect(
         conf_counts[h.confidence] += 1
 
     print(
-        f"\n  {files_scanned} KML(s) scanned  •  {total_records:,} records  •  "
+        f"\n  {files_scanned} CSV(s) scanned  •  {total_records:,} records  •  "
         f"{len(all_hits)} unique Flock hit(s)  "
         f"(HIGH={conf_counts[3]} MED={conf_counts[2]} LOW={conf_counts[1]})"
     )
@@ -200,21 +210,11 @@ def sync_and_detect(
 
     # Print hit table
     print()
-    col_w = (4, 19, 30, 6, 5, 5, 10, 10, 4)
+    col_w = (6, 19, 30, 5, 5, 4, 10, 10, 4)
     header = ("Conf", "MAC", "Name", "Type", "RSSI", "Ch", "Lat", "Lon", "Runs")
     fmt = "  ".join(f"{{:<{w}}}" for w in col_w)
     print(fmt.format(*header))
     print("  ".join("-" * w for w in col_w))
-
-    # Count how many runs each MAC appears in
-    mac_runs: dict[str, int] = {}
-    for t in transactions:
-        kml = _kml_path(t["transid"])
-        if not kml.exists():
-            continue
-        hits_in_run, _ = run_detection(kml, min_confidence=min_confidence)
-        for h in hits_in_run:
-            mac_runs[h.mac.lower()] = mac_runs.get(h.mac.lower(), 0) + 1
 
     for h in all_hits:
         ch = freq_to_channel(h.frequency)
@@ -263,7 +263,8 @@ def main(argv: list[str] | None = None) -> None:
         help="List transactions without downloading or scanning",
     )
     parser.add_argument(
-        "-y", "--yes",
+        "-y",
+        "--yes",
         action="store_true",
         help="Skip download confirmation prompt",
     )
