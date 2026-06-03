@@ -65,7 +65,7 @@ enum class Screen : uint8_t {
   kFileBrowser = 11,
 };
 
-constexpr size_t kCarouselPages = 0;
+constexpr size_t kCarouselPages = 3;
 
 // Status field layout (y offsets from kStatContentY).
 constexpr int kStatContentY = kBodyTop + 4;
@@ -1024,6 +1024,8 @@ void paint_home(bool force) {
 
   s_paint_home_sel = s_home_sel;
 }
+
+void goto_screen(Screen sc);
 
 void open_home_app(size_t idx) {
   if (idx >= 9) return;
