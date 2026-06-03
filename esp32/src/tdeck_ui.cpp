@@ -999,10 +999,12 @@ void paint_home_tile(int x, int y, int w, int h, size_t idx, bool selected) {
 
 void paint_home(bool force) {
   if (!force && s_home_sel == s_paint_home_sel) return;
-  chrome.clear_body();
 
-  constexpr int kTileW = 77;
-  constexpr int kTileH = 81;
+  // Body is 176px tall (240 - 28 header - 36 chrome-bottom).
+  // 3 cols: 2+104+2+104+2+104 = 318, leaving 2px right margin.
+  // 3 rows: 4+54+2+54+2+54 = 170, leaving 6px bottom margin. No footer overlap.
+  constexpr int kTileW = 104;
+  constexpr int kTileH = 54;
   constexpr int kGapX = 2;
   constexpr int kGapY = 2;
   constexpr int kMarginX = 2;
@@ -1014,12 +1016,28 @@ void paint_home(bool force) {
   };
   const int top = kBodyTop + kMarginY;
 
-  for (size_t i = 0; i < 9; i++) {
-    const int col = (int)(i % 3);
-    const int row = (int)(i / 3);
-    const int tx = col_x[col];
-    const int ty = top + row * (kTileH + kGapY);
-    paint_home_tile(tx, ty, kTileW, kTileH, i, i == s_home_sel);
+  if (force || s_paint_home_sel == SIZE_MAX) {
+    // Full repaint. On initial screen entry (force=true) clear first so the
+    // inter-tile gaps get kBg. On count-only updates skip the clear — each
+    // tile fills its own rect, and the gaps are already kBg from the last
+    // full-entry clear.
+    if (force) chrome.clear_body();
+    for (size_t i = 0; i < 9; i++) {
+      const int col = (int)(i % 3);
+      const int row = (int)(i / 3);
+      paint_home_tile(col_x[col], top + row * (kTileH + kGapY), kTileW, kTileH, i, i == s_home_sel);
+    }
+  } else {
+    // Selection changed only — repaint the two affected tiles, no body clear.
+    const size_t prev = s_paint_home_sel;
+    if (prev < 9) {
+      paint_home_tile(col_x[prev % 3], top + (int)(prev / 3) * (kTileH + kGapY),
+                      kTileW, kTileH, prev, false);
+    }
+    if (s_home_sel < 9) {
+      paint_home_tile(col_x[s_home_sel % 3], top + (int)(s_home_sel / 3) * (kTileH + kGapY),
+                      kTileW, kTileH, s_home_sel, true);
+    }
   }
 
   s_paint_home_sel = s_home_sel;
