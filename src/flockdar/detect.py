@@ -377,7 +377,7 @@ def read_csv(path: Path) -> Iterator[Record]:
                 "mac": row.get("MAC", ""),
                 "ssid": row.get("SSID", ""),
                 "type": row.get("Type", ""),
-                "rssi": int(row.get("RSSI", 0) or 0),
+                "rssi": int(float(row.get("RSSI", 0) or 0)),
                 "lat": float(row.get("CurrentLatitude", 0) or 0),
                 "lon": float(row.get("CurrentLongitude", 0) or 0),
                 "first_seen": row.get("FirstSeen", ""),
