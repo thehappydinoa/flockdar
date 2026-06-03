@@ -221,6 +221,7 @@ __marimo__/
 
 # Claude Code local settings — IDE-specific, not project config
 .claude/settings.local.json
+.claude/worktrees/
 
 # WiGLE data exports — contain personal location data, never commit
 *.sqlite
