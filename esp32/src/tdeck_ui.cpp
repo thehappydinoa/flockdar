@@ -923,21 +923,23 @@ struct AppDef {
   DevIcon icon;
   const char *title;
   const char *subtitle;
-  char key;
+  char key;   // lowercase; drives both tile hint and global shortcut
   Screen target;
 };
 
-static const Screen kHomeAppScreens[] = {
-  Screen::kList,
-  Screen::kWifiList,
-  Screen::kBleList,
-  Screen::kNearby,
-  Screen::kStatus,
-  Screen::kSettings,
-  Screen::kMeshtastic,
-  Screen::kGpsTrack,
-  Screen::kFileBrowser,
+// Single source of truth: home grid tiles, key hints, and global shortcuts.
+static const AppDef kApps[] = {
+  { DevIcon::kCamera,  "FLOCK",    "detections",   'l', Screen::kList },
+  { DevIcon::kRouter,  "WIFI",     "wifi devs",    'w', Screen::kWifiList },
+  { DevIcon::kUnknown, "BLE",      "ble devs",     'b', Screen::kBleList },
+  { DevIcon::kPhone,   "ALL RF",   "rf sightings", 'n', Screen::kNearby },
+  { DevIcon::kBoot,    "STATUS",   "system info",  's', Screen::kStatus },
+  { DevIcon::kLock,    "SETTINGS", "preferences",  'x', Screen::kSettings },
+  { DevIcon::kTracker, "MESH",     "meshtastic",   'm', Screen::kMeshtastic },
+  { DevIcon::kBoot,    "GPS",      "track/map",    'g', Screen::kGpsTrack },
+  { DevIcon::kRouter,  "FILES",    "sd card",      'f', Screen::kFileBrowser },
 };
+static constexpr size_t kNumApps = sizeof(kApps) / sizeof(kApps[0]);
 
 static size_t app_count_for(Screen s) {
   switch (s) {
@@ -950,24 +952,12 @@ static size_t app_count_for(Screen s) {
 }
 
 void paint_home_tile(int x, int y, int w, int h, size_t idx, bool selected) {
-  static const AppDef kApps[] = {
-    { DevIcon::kCamera,  "FLOCK",    "detections",   'l', Screen::kList },
-    { DevIcon::kRouter,  "WIFI",     "wifi devs",    'w', Screen::kWifiList },
-    { DevIcon::kUnknown, "BLE",      "ble devs",     'b', Screen::kBleList },
-    { DevIcon::kPhone,   "ALL RF",   "rf sightings", 'n', Screen::kNearby },
-    { DevIcon::kBoot,    "STATUS",   "system info",  's', Screen::kStatus },
-    { DevIcon::kLock,    "SETTINGS", "preferences",  'x', Screen::kSettings },
-    { DevIcon::kTracker, "MESH",     "meshtastic",   'm', Screen::kMeshtastic },
-    { DevIcon::kBoot,    "GPS",      "track/map",    'g', Screen::kGpsTrack },
-    { DevIcon::kRouter,  "FILES",    "sd card",      'f', Screen::kFileBrowser },
-  };
-
   const uint16_t bg = selected ? kSurface : kBg;
   const uint16_t border = selected ? kFlock : kDivider;
   disp().fillRect(x, y, w, h, bg);
   disp().drawRect(x, y, w, h, border);
 
-  if (idx >= 9) return;
+  if (idx >= kNumApps) return;
   const AppDef &app = kApps[idx];
 
   // Icon
@@ -1022,7 +1012,7 @@ void paint_home(bool force) {
     // tile fills its own rect, and the gaps are already kBg from the last
     // full-entry clear.
     if (force) chrome.clear_body();
-    for (size_t i = 0; i < 9; i++) {
+    for (size_t i = 0; i < kNumApps; i++) {
       const int col = (int)(i % 3);
       const int row = (int)(i / 3);
       paint_home_tile(col_x[col], top + row * (kTileH + kGapY), kTileW, kTileH, i, i == s_home_sel);
@@ -1030,11 +1020,11 @@ void paint_home(bool force) {
   } else {
     // Selection changed only — repaint the two affected tiles, no body clear.
     const size_t prev = s_paint_home_sel;
-    if (prev < 9) {
+    if (prev < kNumApps) {
       paint_home_tile(col_x[prev % 3], top + (int)(prev / 3) * (kTileH + kGapY),
                       kTileW, kTileH, prev, false);
     }
-    if (s_home_sel < 9) {
+    if (s_home_sel < kNumApps) {
       paint_home_tile(col_x[s_home_sel % 3], top + (int)(s_home_sel / 3) * (kTileH + kGapY),
                       kTileW, kTileH, s_home_sel, true);
     }
@@ -1046,8 +1036,8 @@ void paint_home(bool force) {
 void goto_screen(Screen sc);
 
 void open_home_app(size_t idx) {
-  if (idx >= 9) return;
-  goto_screen(kHomeAppScreens[idx]);
+  if (idx >= kNumApps) return;
+  goto_screen(kApps[idx].target);
 }
 
 void paint_detail(bool force) {
@@ -1222,12 +1212,13 @@ void paint_help(bool force) {
       "  s       status",
       "  x       settings",
       "  m       meshtastic",
+      "  g       gps track",
       "  f       files",
       "KEYS",
       "  d       detail view",
       "  h       help (close)",
       "  j k     scroll list",
-      "  g G     last / first row",
+      "  G       last row",
       "  p       screenshot",
       nullptr,
   };
@@ -1932,7 +1923,7 @@ void poll_trackball() {
     switch (i) {
     case 0: // RIGHT
       if (s_screen == Screen::kHome) {
-        if (s_home_sel < 8) { s_home_sel++; s_dirty = true; }
+        if (s_home_sel + 1 < kNumApps) { s_home_sel++; s_dirty = true; }
       } else if (s_screen == Screen::kSettings) {
         if (s_settings_sel == 0 && s_brightness < 16) {
           s_brightness++;
@@ -1974,7 +1965,7 @@ void poll_trackball() {
       break;
     case 3: // DOWN
       if (s_screen == Screen::kHome) {
-        if (s_home_sel <= 5) { s_home_sel += 3; s_dirty = true; }
+        if (s_home_sel + 3 < kNumApps) { s_home_sel += 3; s_dirty = true; }
       } else if (s_screen == Screen::kStatus) {
         trackball_note_vertical();
         scroll_status(1);
@@ -2027,38 +2018,35 @@ void handle_key(char key) {
     goto_screen(Screen::kHome);
     return;
   }
-  // Direct app shortcuts (work from any screen)
-  if (key == 's' || key == 'S') {
-    goto_screen(Screen::kStatus);
+  // G = jump to last row in lists (uppercase only; checked before the app-key
+  // loop so it is not swallowed by the case-insensitive GPS 'g' match).
+  if (key == 'G') {
+    if (s_screen == Screen::kNearby ||
+        (s_screen == Screen::kDetail &&
+         s_detail_source == DetailSource::kNearby)) {
+      const size_t n = rf_sightings_count();
+      if (n > 0) { s_nearby_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kBleList) {
+      const size_t n = rf_count_kind("ble");
+      if (n > 0) { s_ble_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kWifiList) {
+      const size_t n = rf_count_kind("wifi");
+      if (n > 0) { s_wifi_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kList ||
+               (s_screen == Screen::kDetail &&
+                s_detail_source == DetailSource::kFlock)) {
+      if (s_hit_count > 0) { s_list_sel = s_hit_count - 1; s_dirty = true; }
+    }
     return;
   }
-  if (key == 'l' || key == 'L') {
-    goto_screen(Screen::kList);
-    return;
-  }
-  if (key == 'n' || key == 'N') {
-    goto_screen(Screen::kNearby);
-    return;
-  }
-  if (key == 'w' || key == 'W') {
-    goto_screen(Screen::kWifiList);
-    return;
-  }
-  if (key == 'b' || key == 'B') {
-    goto_screen(Screen::kBleList);
-    return;
-  }
-  if (key == 'x' || key == 'X') {
-    goto_screen(Screen::kSettings);
-    return;
-  }
-  if (key == 'm' || key == 'M') {
-    goto_screen(Screen::kMeshtastic);
-    return;
-  }
-  if (key == 'f' || key == 'F') {
-    goto_screen(Screen::kFileBrowser);
-    return;
+  // Central app shortcut dispatch — all kApps keys, case-insensitive.
+  // Adding a new screen to the home grid automatically gives it a global key.
+  for (size_t i = 0; i < kNumApps; i++) {
+    const char k = kApps[i].key;
+    if (key == k || key == (char)(k & ~0x20)) {
+      goto_screen(kApps[i].target);
+      return;
+    }
   }
   // File browser screen navigation
   if (s_screen == Screen::kFileBrowser) {
@@ -2093,11 +2081,11 @@ void handle_key(char key) {
     if (key == '\n' || key == '\r') {
       open_home_app(s_home_sel);
     } else if (key == 'j' || key == 'J') {
-      if (s_home_sel <= 5) { s_home_sel += 3; s_dirty = true; }
+      if (s_home_sel + 3 < kNumApps) { s_home_sel += 3; s_dirty = true; }
     } else if (key == 'k' || key == 'K') {
       if (s_home_sel >= 3) { s_home_sel -= 3; s_dirty = true; }
     } else if (key == ' ') {
-      if (s_home_sel < 8) { s_home_sel++; s_dirty = true; }
+      if (s_home_sel + 1 < kNumApps) { s_home_sel++; s_dirty = true; }
     }
     return;
   }
@@ -2140,38 +2128,6 @@ void handle_key(char key) {
         serial_out_info("screenshot failed");
       }
       // Do not emit info lines after begin — JSON would land between FDSC and pixels.
-    }
-    return;
-  }
-  if (key == 'g') {
-    if (s_screen == Screen::kNearby ||
-        (s_screen == Screen::kDetail &&
-         s_detail_source == DetailSource::kNearby)) {
-      const size_t n = rf_sightings_count();
-      if (n > 0) { s_nearby_sel = n - 1; s_dirty = true; }
-    } else if (s_screen == Screen::kBleList) {
-      const size_t n = rf_count_kind("ble");
-      if (n > 0) { s_ble_sel = n - 1; s_dirty = true; }
-    } else if (s_screen == Screen::kWifiList) {
-      const size_t n = rf_count_kind("wifi");
-      if (n > 0) { s_wifi_sel = n - 1; s_dirty = true; }
-    } else if (s_hit_count > 0) {
-      s_list_sel = s_hit_count - 1;
-      s_dirty = true;
-    }
-    return;
-  }
-  if (key == 'G') {
-    if (s_screen == Screen::kNearby ||
-        (s_screen == Screen::kDetail &&
-         s_detail_source == DetailSource::kNearby)) {
-      if (rf_sightings_count() > 0) { s_nearby_sel = 0; s_dirty = true; }
-    } else if (s_screen == Screen::kBleList) {
-      s_ble_sel = 0; s_dirty = true;
-    } else if (s_screen == Screen::kWifiList) {
-      s_wifi_sel = 0; s_dirty = true;
-    } else if (s_hit_count > 0) {
-      s_list_sel = 0; s_dirty = true;
     }
     return;
   }
