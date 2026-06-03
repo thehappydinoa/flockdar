@@ -24,6 +24,12 @@
 #ifdef FD_ENABLE_GPS
 #include "gps.h"
 #endif
+#ifdef FD_ENABLE_LORA
+#include "lora_scanner.h"
+#endif
+#ifdef FD_ENABLE_GPS
+#include "gps_track.h"
+#endif
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
 #include "display.h"
 #endif
@@ -77,6 +83,15 @@ void setup() {
     tdeck_boot_step("BLE", 95);
 #endif
   }
+#ifdef FD_ENABLE_LORA
+  lora_scanner_begin();
+#  ifdef FD_ENABLE_TDECK_UI
+  tdeck_boot_step("LORA", 98);
+#  endif
+#endif
+#ifdef FD_ENABLE_GPS
+  gps_track_begin();
+#endif
 
   {
     char msg[32];
@@ -132,6 +147,12 @@ void loop() {
 
 #ifdef FD_ENABLE_GPS
   gps_loop();
+#endif
+#ifdef FD_ENABLE_LORA
+  lora_scanner_loop();
+#endif
+#ifdef FD_ENABLE_GPS
+  gps_track_loop();
 #endif
 #if defined(FD_ENABLE_OLED) || defined(FD_ENABLE_TDECK_UI)
 #  ifdef FD_ENABLE_TDECK_UI

@@ -17,6 +17,9 @@
 #define TDECK_SPI_MISO 38
 
 #define TDECK_RADIO_CS 9
+#define TDECK_RADIO_DIO1 45
+#define TDECK_RADIO_BUSY 13
+#define TDECK_RADIO_RST  17
 #define TDECK_SD_CS 39  // BOARD_SDCARD_CS — shared SPI with TFT + LoRa
 
 #define TDECK_TBOX_RIGHT 2   // BOARD_TBOX_G02

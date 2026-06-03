@@ -33,6 +33,13 @@
 #include "sdlog.h"
 #endif
 
+#ifdef FD_ENABLE_LORA
+#include "lora_scanner.h"
+#endif
+#ifdef FD_ENABLE_GPS
+#include "gps_track.h"
+#endif
+
 namespace {
 
 constexpr size_t kMaxHits = 24;
@@ -44,11 +51,18 @@ constexpr int kListTopY = TdeckTheme::kBodyTop + 4;
 using namespace TdeckTheme;
 
 enum class Screen : uint8_t {
-  kStatus = 0,
-  kList = 1,
-  kDetail = 2,
-  kHelp = 3,
-  kNearby = 4,
+  kHome = 0,
+  kStatus = 1,
+  kList = 2,
+  kDetail = 3,
+  kHelp = 4,
+  kNearby = 5,
+  kBleList = 6,
+  kWifiList = 7,
+  kSettings = 8,
+  kMeshtastic = 9,
+  kGpsTrack = 10,
+  kFileBrowser = 11,
 };
 
 constexpr size_t kCarouselPages = 3;
@@ -189,8 +203,8 @@ HitLine s_hits[kMaxHits];
 size_t s_hit_count = 0;
 size_t s_list_sel = 0;
 size_t s_nearby_sel = 0;
-Screen s_screen = Screen::kStatus;
-Screen s_return_screen = Screen::kStatus;
+Screen s_screen = Screen::kHome;
+Screen s_return_screen = Screen::kHome;
 DetailSource s_detail_source = DetailSource::kFlock;
 Screen s_detail_return = Screen::kList;
 
@@ -199,7 +213,7 @@ bool s_dirty = true;
 uint8_t s_brightness = 16;
 uint32_t s_last_input_ms = 0;
 bool s_display_asleep = false;
-Screen s_painted = Screen::kStatus;
+Screen s_painted = Screen::kHome;
 bool s_status_static = false;
 
 uint32_t s_paint_hits = UINT32_MAX;
@@ -232,8 +246,49 @@ uint32_t s_last_bat_poll = 0;
 bool s_help_painted = false;
 uint32_t s_help_key_block_until = 0;
 int s_paint_status_scroll = -1;
+
+size_t s_home_sel = 0;
+size_t s_paint_home_sel = SIZE_MAX;
+
+size_t s_ble_sel = 0;
+size_t s_paint_ble_sel = SIZE_MAX;
+size_t s_paint_ble_start = SIZE_MAX;
+size_t s_paint_ble_count = SIZE_MAX;
+
+size_t s_wifi_sel = 0;
+size_t s_paint_wifi_sel = SIZE_MAX;
+size_t s_paint_wifi_start = SIZE_MAX;
+size_t s_paint_wifi_count = SIZE_MAX;
+
+uint8_t s_settings_sel = 0;
+bool s_settings_painted = false;
 uint32_t s_hit_alert_until = 0;
 constexpr uint32_t kHitAlertMs = 700;
+
+// Meshtastic screen
+size_t s_mesh_sel = 0;
+size_t s_paint_mesh_sel = SIZE_MAX;
+size_t s_paint_mesh_start = SIZE_MAX;
+size_t s_paint_mesh_count = SIZE_MAX;
+
+// GPS track screen
+uint32_t s_paint_track_events = UINT32_MAX;
+
+// File browser screen
+struct FileEntry {
+  char name[33];
+  bool is_dir;
+  uint32_t size;
+};
+static constexpr size_t kMaxFiles = 32;
+FileEntry s_files[kMaxFiles];
+size_t s_file_count = 0;
+size_t s_file_sel = 0;
+char s_file_path[64] = "/";
+bool s_files_loaded = false;
+bool s_files_loading = false;
+size_t s_paint_file_sel = SIZE_MAX;
+size_t s_paint_file_count = SIZE_MAX;
 
 void invalidate_status_paint_cache() {
   s_paint_status_scroll = -1;
@@ -265,10 +320,18 @@ void kb_drain() {
 
 const char *screen_title(Screen s) {
   switch (s) {
-  case Screen::kDetail:
-    return "DETAIL";
-  default:
-    return "FLOCKDAR";
+  case Screen::kHome:        return "FLOCKDAR";
+  case Screen::kStatus:      return "STATUS";
+  case Screen::kList:        return "FLOCK HITS";
+  case Screen::kDetail:      return "DETAIL";
+  case Screen::kNearby:      return "ALL DEVICES";
+  case Screen::kBleList:     return "BLE SCAN";
+  case Screen::kWifiList:    return "WIFI SCAN";
+  case Screen::kSettings:    return "SETTINGS";
+  case Screen::kMeshtastic:  return "MESHTASTIC";
+  case Screen::kGpsTrack:    return "GPS TRACK";
+  case Screen::kFileBrowser: return "FILES";
+  default:                   return "FLOCKDAR";
   }
 }
 
@@ -389,6 +452,29 @@ const char *rf_vendor(const RfDevice &d) {
     if (v) return v;
   }
   return oui_vendor_name(d.mac_raw);
+}
+
+static size_t rf_count_kind(const char *kind) {
+  const size_t total = rf_sightings_count();
+  size_t n = 0;
+  for (size_t i = 0; i < total; i++) {
+    RfDevice d{};
+    if (rf_sightings_get(i, &d) && strcmp(d.kind, kind) == 0) n++;
+  }
+  return n;
+}
+
+static bool rf_get_kind(size_t index, const char *kind, RfDevice *out) {
+  const size_t total = rf_sightings_count();
+  size_t found = 0;
+  for (size_t i = 0; i < total; i++) {
+    RfDevice d{};
+    if (!rf_sightings_get(i, &d)) continue;
+    if (strcmp(d.kind, kind) != 0) continue;
+    if (found == index) { *out = d; return true; }
+    found++;
+  }
+  return false;
 }
 
 void push_hit(const Detection &d) {
@@ -739,6 +825,220 @@ void paint_nearby(bool force) {
                                 nearby_icon_row_fn, kListTopY, force);
 }
 
+void ble_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
+  RfDevice d{};
+  if (!out || !rf_get_kind(index, "ble", &d)) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kUnknown);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
+    }
+    return;
+  }
+  const char *vendor = rf_vendor(d);
+  const DevIcon icon = classify_rf_device(d, vendor);
+  out->icon = static_cast<uint8_t>(icon);
+  if (vendor) {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", vendor, dev_icon_label(icon));
+  } else {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", d.mac, dev_icon_label(icon));
+  }
+  if (d.label[0] && strcmp(d.label, "ble") != 0) {
+    snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.label, d.rssi, (unsigned long)d.seen);
+  } else {
+    snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.mac, d.rssi, (unsigned long)d.seen);
+  }
+}
+
+void paint_ble_list(bool force) {
+  const size_t count = rf_count_kind("ble");
+  chrome.paint_icon_scroll_list(count, &s_ble_sel, &s_paint_ble_sel,
+                                &s_paint_ble_start, &s_paint_ble_count,
+                                ble_icon_row_fn, kListTopY, force);
+}
+
+void wifi_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
+  RfDevice d{};
+  if (!out || !rf_get_kind(index, "wifi", &d)) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kUnknown);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
+    }
+    return;
+  }
+  const char *vendor = rf_vendor(d);
+  const DevIcon icon = classify_rf_device(d, vendor);
+  out->icon = static_cast<uint8_t>(icon);
+  if (vendor) {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", vendor, dev_icon_label(icon));
+  } else {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", d.mac, dev_icon_label(icon));
+  }
+  snprintf(out->line2, sizeof(out->line2), "ch%u  %d dBm  x%lu",
+           (unsigned)d.channel, d.rssi, (unsigned long)d.seen);
+}
+
+void paint_wifi_list(bool force) {
+  const size_t count = rf_count_kind("wifi");
+  chrome.paint_icon_scroll_list(count, &s_wifi_sel, &s_paint_wifi_sel,
+                                &s_paint_wifi_start, &s_paint_wifi_count,
+                                wifi_icon_row_fn, kListTopY, force);
+}
+
+static const char *brightness_label(uint8_t b) {
+  if (b <= 4) return "dim";
+  if (b <= 8) return "low";
+  if (b <= 12) return "medium";
+  return "bright";
+}
+
+void paint_settings(bool force) {
+  if (!force && s_settings_painted) return;
+  chrome.clear_body();
+  int y = kListTopY;
+  chrome.paint_section_label(y, "DISPLAY");
+  y += kSectionH + 4;
+
+  // Brightness row
+  const bool br_sel = (s_settings_sel == 0);
+  const uint16_t br_bg = br_sel ? kSurface : kBg;
+  disp().fillRect(0, y - 1, disp().width(), kFieldH + 2, br_bg);
+  char br_val[24];
+  snprintf(br_val, sizeof(br_val), "%s (%u/16)", brightness_label(s_brightness), (unsigned)s_brightness);
+  chrome.paint_field(y, "Brightness", br_val);
+  if (br_sel) {
+    disp().drawRect(2, y - 2, disp().width() - 4, kFieldH + 3, kAccent);
+    chrome.paint_text(disp().width() - 20, y, "< >", kFontLabel, kAccentDim, br_bg);
+  }
+  y += kFieldH + 6;
+
+  chrome.paint_divider(y);
+  y += 8;
+  chrome.paint_text(4, y, "< > adjust  Enter confirm", kFontLabel, kTextMuted, kBg);
+  s_settings_painted = true;
+}
+
+struct AppDef {
+  DevIcon icon;
+  const char *title;
+  const char *subtitle;
+  char key;   // lowercase; drives both tile hint and global shortcut
+  Screen target;
+};
+
+// Single source of truth: home grid tiles, key hints, and global shortcuts.
+static const AppDef kApps[] = {
+  { DevIcon::kCamera,  "FLOCK",    "detections",   'l', Screen::kList },
+  { DevIcon::kRouter,  "WIFI",     "wifi devs",    'w', Screen::kWifiList },
+  { DevIcon::kUnknown, "BLE",      "ble devs",     'b', Screen::kBleList },
+  { DevIcon::kPhone,   "ALL RF",   "rf sightings", 'n', Screen::kNearby },
+  { DevIcon::kBoot,    "STATUS",   "system info",  's', Screen::kStatus },
+  { DevIcon::kLock,    "SETTINGS", "preferences",  'x', Screen::kSettings },
+  { DevIcon::kTracker, "MESH",     "meshtastic",   'm', Screen::kMeshtastic },
+  { DevIcon::kBoot,    "GPS",      "track/map",    'g', Screen::kGpsTrack },
+  { DevIcon::kRouter,  "FILES",    "sd card",      'f', Screen::kFileBrowser },
+};
+static constexpr size_t kNumApps = sizeof(kApps) / sizeof(kApps[0]);
+
+static size_t app_count_for(Screen s) {
+  switch (s) {
+  case Screen::kList:     return s_hit_count;
+  case Screen::kBleList:  return rf_count_kind("ble");
+  case Screen::kWifiList: return rf_count_kind("wifi");
+  case Screen::kNearby:   return rf_sightings_count();
+  default:                return SIZE_MAX;
+  }
+}
+
+void paint_home_tile(int x, int y, int w, int h, size_t idx, bool selected) {
+  const uint16_t bg = selected ? kSurface : kBg;
+  const uint16_t border = selected ? kFlock : kDivider;
+  disp().fillRect(x, y, w, h, bg);
+  disp().drawRect(x, y, w, h, border);
+
+  if (idx >= kNumApps) return;
+  const AppDef &app = kApps[idx];
+
+  // Icon
+  draw_dev_icon(disp(), app.icon, x + 6, y + 8, selected ? kFlock : kTextMuted, bg);
+
+  // Title
+  disp().setTextColor(selected ? kText : kTextMuted, bg);
+  disp().setTextDatum(TL_DATUM);
+  disp().drawString(app.title, x + 24, y + 10, kFontLabel);
+
+  // Count or subtitle
+  const size_t cnt = app_count_for(app.target);
+  char sub[24];
+  if (cnt != SIZE_MAX) {
+    snprintf(sub, sizeof(sub), "%lu %s", (unsigned long)cnt, app.subtitle);
+  } else {
+    strncpy(sub, app.subtitle, sizeof(sub) - 1);
+    sub[sizeof(sub) - 1] = '\0';
+  }
+  disp().setTextColor(kTextMuted, bg);
+  disp().drawString(sub, x + 6, y + 28, kFontLabel);
+
+  // Key hint
+  char hint[6];
+  snprintf(hint, sizeof(hint), "[%c]", app.key);
+  disp().setTextColor(kAccentDim, bg);
+  disp().drawString(hint, x + 6, y + h - 14, kFontLabel);
+}
+
+void paint_home(bool force) {
+  if (!force && s_home_sel == s_paint_home_sel) return;
+
+  // Body is 176px tall (240 - 28 header - 36 chrome-bottom).
+  // 3 cols: 2+104+2+104+2+104 = 318, leaving 2px right margin.
+  // 3 rows: 4+54+2+54+2+54 = 170, leaving 6px bottom margin. No footer overlap.
+  constexpr int kTileW = 104;
+  constexpr int kTileH = 54;
+  constexpr int kGapX = 2;
+  constexpr int kGapY = 2;
+  constexpr int kMarginX = 2;
+  constexpr int kMarginY = 4;
+  const int col_x[3] = {
+    kMarginX,
+    kMarginX + kTileW + kGapX,
+    kMarginX + 2 * (kTileW + kGapX)
+  };
+  const int top = kBodyTop + kMarginY;
+
+  if (force || s_paint_home_sel == SIZE_MAX) {
+    // Full repaint. On initial screen entry (force=true) clear first so the
+    // inter-tile gaps get kBg. On count-only updates skip the clear — each
+    // tile fills its own rect, and the gaps are already kBg from the last
+    // full-entry clear.
+    if (force) chrome.clear_body();
+    for (size_t i = 0; i < kNumApps; i++) {
+      const int col = (int)(i % 3);
+      const int row = (int)(i / 3);
+      paint_home_tile(col_x[col], top + row * (kTileH + kGapY), kTileW, kTileH, i, i == s_home_sel);
+    }
+  } else {
+    // Selection changed only — repaint the two affected tiles, no body clear.
+    const size_t prev = s_paint_home_sel;
+    if (prev < kNumApps) {
+      paint_home_tile(col_x[prev % 3], top + (int)(prev / 3) * (kTileH + kGapY),
+                      kTileW, kTileH, prev, false);
+    }
+    if (s_home_sel < kNumApps) {
+      paint_home_tile(col_x[s_home_sel % 3], top + (int)(s_home_sel / 3) * (kTileH + kGapY),
+                      kTileW, kTileH, s_home_sel, true);
+    }
+  }
+
+  s_paint_home_sel = s_home_sel;
+}
+
+void goto_screen(Screen sc);
+
+void open_home_app(size_t idx) {
+  if (idx >= kNumApps) return;
+  goto_screen(kApps[idx].target);
+}
 
 void paint_detail(bool force) {
   const uint8_t mode =
@@ -900,19 +1200,26 @@ void paint_help(bool force) {
   chrome.clear_body();
   const char *lines[] = {
       "NAVIGATION",
-      "  L/R     prev / next page",
+      "  q Esc   home menu",
+      "  enter   open / select",
       "  U/D     scroll (lists)",
-      "  click   select / detail",
-      "  space   next page",
-      "KEYS",
+      "  L/R     navigate home tiles",
+      "APPS",
+      "  l       flock hits",
+      "  w       wifi scan",
+      "  b       ble scan",
+      "  n       all devices",
       "  s       status",
-      "  l n     hits / nearby",
-      "  d       detail",
-      "  h Esc   help",
+      "  x       settings",
+      "  m       meshtastic",
+      "  g       gps track",
+      "  f       files",
+      "KEYS",
+      "  d       detail view",
+      "  h       help (close)",
       "  j k     scroll list",
-      "  g G     last / first row",
+      "  G       last row",
       "  p       screenshot",
-      "  idle    backlight off (key/wake)",
       nullptr,
   };
   int y = kListTopY;
@@ -929,6 +1236,302 @@ void paint_help(bool force) {
   s_help_painted = true;
 }
 
+void mesh_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
+#ifdef FD_ENABLE_LORA
+  MeshNode node{};
+  if (!out || !lora_nodes_get(index, &node)) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kTracker);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
+    }
+    return;
+  }
+  out->icon = static_cast<uint8_t>(DevIcon::kTracker);
+  snprintf(out->line1, sizeof(out->line1), "!%08lx", (unsigned long)node.node_id);
+  uint32_t age_s = (millis() - node.last_ms) / 1000;
+  snprintf(out->line2, sizeof(out->line2), "%d dBm  %.1f dB  x%lu  %lus ago",
+           (int)node.rssi, node.snr, (unsigned long)node.count, (unsigned long)age_s);
+#else
+  if (out) {
+    out->icon = static_cast<uint8_t>(DevIcon::kUnknown);
+    strncpy(out->line1, "LORA not enabled", sizeof(out->line1));
+    out->line2[0] = '\0';
+  }
+#endif
+}
+
+void paint_meshtastic(bool force) {
+#ifdef FD_ENABLE_LORA
+  const size_t count = lora_nodes_count();
+  // Show total packet count in a small header row
+  if (force || s_painted != Screen::kMeshtastic) {
+    // Draw packet counter above list
+    char pkt[32];
+    snprintf(pkt, sizeof(pkt), "%lu pkts total", (unsigned long)lora_packets_total());
+    disp().fillRect(0, kBodyTop, disp().width(), 12, kBg);
+    chrome.paint_text(4, kBodyTop + 1, lora_scanner_ok() ? pkt : "radio init failed",
+                      kFontLabel, lora_scanner_ok() ? kTextMuted : kDanger, kBg);
+  }
+  const int list_top = kBodyTop + 14;
+  chrome.paint_icon_scroll_list(count, &s_mesh_sel, &s_paint_mesh_sel,
+                                &s_paint_mesh_start, &s_paint_mesh_count,
+                                mesh_icon_row_fn, list_top, force);
+#else
+  if (force || s_painted != Screen::kMeshtastic) {
+    chrome.clear_body();
+    chrome.paint_text(4, kListTopY + 20, "Build with -DFD_ENABLE_LORA", kFontLabel, kTextMuted, kBg);
+  }
+#endif
+}
+
+void paint_gps_track(bool force) {
+#ifdef FD_ENABLE_GPS
+  const uint32_t ev = gps_track_events();
+  if (!force && s_painted == Screen::kGpsTrack && ev == s_paint_track_events) return;
+  s_paint_track_events = ev;
+  chrome.clear_body();
+
+  const size_t count = gps_track_count();
+  const int W = disp().width();
+  const int total_body = disp().height() - kHdrH - kChromeBottom;
+  const int stats_h = 52;
+  const int map_h = total_body - stats_h;
+
+  if (count == 0) {
+    chrome.paint_text(4, kHdrH + map_h / 2 - 6, "No GPS fix yet", kFontLabel, kTextMuted, kBg);
+  } else {
+    float min_lat, max_lat, min_lon, max_lon;
+    gps_track_bounds(&min_lat, &max_lat, &min_lon, &max_lon);
+
+    float pad_lat = (max_lat - min_lat) * 0.1f + 0.0001f;
+    float pad_lon = (max_lon - min_lon) * 0.1f + 0.0001f;
+    min_lat -= pad_lat; max_lat += pad_lat;
+    min_lon -= pad_lon; max_lon += pad_lon;
+    const float lat_range = max_lat - min_lat;
+    const float lon_range = max_lon - min_lon;
+
+    // Draw map area background
+    disp().fillRect(0, kHdrH, W, map_h, kBg);
+
+    // Projection helper struct (avoids lambda capture issues on some ESP32/PlatformIO toolchains)
+    struct Proj {
+      float min_lat, lat_range, min_lon, lon_range;
+      int W, map_h;
+      int kHdrH;
+      void operator()(float lat, float lon, int *px, int *py) const {
+        *px = 2 + (int)((lon - min_lon) / lon_range * (float)(W - 4));
+        *py = kHdrH + map_h - 2 - (int)((lat - min_lat) / lat_range * (float)(map_h - 4));
+      }
+    } proj = { min_lat, lat_range, min_lon, lon_range, W, map_h, kHdrH };
+
+    int ppx = 0, ppy = 0;
+    bool has_prev = false;
+    for (size_t i = 0; i < count; i++) {
+      TrackPoint p{};
+      if (!gps_track_get(i, &p)) continue;
+      int px, py;
+      proj(p.lat, p.lon, &px, &py);
+      if (has_prev) {
+        disp().drawLine(ppx, ppy, px, py, kAccentDim);
+      }
+      disp().drawPixel(px, py, kText);
+      ppx = px; ppy = py;
+      has_prev = true;
+    }
+    // Current position: gold filled circle
+    if (has_prev) {
+      disp().fillCircle(ppx, ppy, 3, kFlock);
+    }
+  }
+
+  // Stats area below map
+  int y = kHdrH + map_h + 4;
+  double lat = 0, lon = 0, alt = 0, acc = 0;
+  char buf[32];
+  if (gps_current(&lat, &lon, &alt, &acc)) {
+    snprintf(buf, sizeof(buf), "%.5f, %.5f", lat, lon);
+    chrome.paint_field(y, "Position", buf);
+    y += kFieldH;
+    snprintf(buf, sizeof(buf), "%.0f m", alt);
+    chrome.paint_field(y, "Altitude", buf);
+    y += kFieldH;
+  } else {
+    chrome.paint_field(y, "Position", "no fix");
+    y += kFieldH;
+  }
+  snprintf(buf, sizeof(buf), "%lu pts", (unsigned long)count);
+  chrome.paint_field(y, "Track", buf);
+#else
+  if (force || s_painted != Screen::kGpsTrack) {
+    chrome.clear_body();
+    chrome.paint_text(4, kListTopY + 20, "Build with -DFD_ENABLE_GPS", kFontLabel, kTextMuted, kBg);
+  }
+#endif
+}
+
+#ifdef FD_ENABLE_SD
+static void file_browser_load(const char *path);
+static void file_browser_go_up();
+static void file_browser_open_selected();
+
+static void file_browser_go_up() {
+  if (strcmp(s_file_path, "/") == 0) return;
+  // Strip last path component
+  char path[64];
+  strncpy(path, s_file_path, sizeof(path) - 1);
+  path[sizeof(path) - 1] = '\0';
+  char *last_slash = strrchr(path, '/');
+  if (last_slash && last_slash != path) {
+    *last_slash = '\0';
+  } else {
+    path[0] = '/'; path[1] = '\0';
+  }
+  s_files_loaded = false;
+  s_files_loading = true;
+  file_browser_load(path);
+  s_dirty = true;
+}
+
+static void file_browser_load(const char *path) {
+  s_file_count = 0;
+  strncpy(s_file_path, path, sizeof(s_file_path) - 1);
+  s_file_path[sizeof(s_file_path) - 1] = '\0';
+
+  // ".." entry if not root
+  if (strcmp(path, "/") != 0) {
+    strncpy(s_files[0].name, "..", sizeof(s_files[0].name) - 1);
+    s_files[0].name[sizeof(s_files[0].name) - 1] = '\0';
+    s_files[0].is_dir = true;
+    s_files[0].size = 0;
+    s_file_count = 1;
+  }
+
+  File dir = SD.open(path);
+  if (dir && dir.isDirectory()) {
+    File entry = dir.openNextFile();
+    while (entry && s_file_count < kMaxFiles) {
+      strncpy(s_files[s_file_count].name, entry.name(),
+              sizeof(s_files[0].name) - 1);
+      s_files[s_file_count].name[sizeof(s_files[0].name) - 1] = '\0';
+      s_files[s_file_count].is_dir = entry.isDirectory();
+      s_files[s_file_count].size = entry.size();
+      s_file_count++;
+      entry.close();
+      entry = dir.openNextFile();
+    }
+    dir.close();
+  }
+
+  s_file_sel = 0;
+  s_files_loaded = true;
+  s_files_loading = false;
+  s_paint_file_sel = SIZE_MAX;
+  s_paint_file_count = SIZE_MAX;
+}
+
+static void file_browser_open_selected() {
+  if (s_file_count == 0) return;
+  const FileEntry &f = s_files[s_file_sel];
+  if (strcmp(f.name, "..") == 0) {
+    file_browser_go_up();
+    return;
+  }
+  if (f.is_dir) {
+    char path[64];
+    if (strcmp(s_file_path, "/") == 0) {
+      snprintf(path, sizeof(path), "/%s", f.name);
+    } else {
+      snprintf(path, sizeof(path), "%s/%s", s_file_path, f.name);
+    }
+    s_files_loaded = false;
+    s_files_loading = true;
+    file_browser_load(path);
+    s_dirty = true;
+  }
+  // For files: do nothing for now (future: open viewer)
+}
+#endif
+
+void paint_file_browser(bool force) {
+#ifdef FD_ENABLE_SD
+  if (!s_files_loaded) {
+    // Loading indicator — actual load happens in tdeck_ui_loop
+    if (force || s_painted != Screen::kFileBrowser) {
+      chrome.clear_body();
+      chrome.paint_text(4, kListTopY + 20, "Loading...", kFontLabel, kTextMuted, kBg);
+    }
+    return;
+  }
+  if (!force && s_file_sel == s_paint_file_sel && s_file_count == s_paint_file_count) return;
+
+  chrome.clear_body();
+
+  // Path breadcrumb
+  chrome.paint_text(2, kBodyTop + 2, s_file_path, kFontLabel, kAccentDim, kBg);
+
+  if (s_file_count == 0) {
+    chrome.paint_text(4, kListTopY + 20, "Empty directory", kFontLabel, kTextMuted, kBg);
+    s_paint_file_sel = s_file_sel;
+    s_paint_file_count = s_file_count;
+    return;
+  }
+
+  // List visible files (row height = kRowH = 36)
+  const int list_top = kBodyTop + 14;
+  const int row_h = kRowH;
+  const int visible = (disp().height() - kChromeBottom - list_top) / row_h;
+  const size_t sel = s_file_sel < s_file_count ? s_file_sel : 0;
+  const size_t start = (sel >= (size_t)visible) ? sel - (size_t)visible + 1 : 0;
+
+  for (int r = 0; r < visible; r++) {
+    const size_t idx = start + (size_t)r;
+    if (idx >= s_file_count) break;
+    const FileEntry &f = s_files[idx];
+    const bool selected = (idx == sel);
+    const int ry = list_top + r * row_h;
+
+    const uint16_t bg = selected ? kSurface : kBg;
+    const uint16_t fg = selected ? kText : kTextMuted;
+    disp().fillRect(0, ry, disp().width(), row_h, bg);
+    if (selected) disp().fillRect(0, ry, kAccentW, row_h, kFlock);
+
+    // Icon: folder or file
+    const DevIcon icon = f.is_dir ? DevIcon::kRouter : DevIcon::kUnknown;
+    draw_dev_icon(disp(), icon, 6, ry + (row_h - 14) / 2, selected ? kFlock : kTextMuted, bg);
+
+    // Name
+    disp().setTextColor(fg, bg);
+    disp().setTextDatum(TL_DATUM);
+    disp().drawString(f.name, 24, ry + 6, kFontLabel);
+
+    // Size (for files)
+    if (!f.is_dir && f.size > 0) {
+      char sz[16];
+      if (f.size >= 1024 * 1024) {
+        snprintf(sz, sizeof(sz), "%.1fM", f.size / (1024.0f * 1024.0f));
+      } else if (f.size >= 1024) {
+        snprintf(sz, sizeof(sz), "%.1fK", f.size / 1024.0f);
+      } else {
+        snprintf(sz, sizeof(sz), "%luB", (unsigned long)f.size);
+      }
+      disp().setTextColor(kTextMuted, bg);
+      disp().setTextDatum(TR_DATUM);
+      disp().drawString(sz, disp().width() - 4, ry + 6, kFontLabel);
+      disp().setTextDatum(TL_DATUM);
+    }
+  }
+
+  s_paint_file_sel = s_file_sel;
+  s_paint_file_count = s_file_count;
+#else
+  if (force || s_painted != Screen::kFileBrowser) {
+    chrome.clear_body();
+    chrome.paint_text(4, kListTopY + 20, "Build with -DFD_ENABLE_SD", kFontLabel, kTextMuted, kBg);
+  }
+#endif
+}
+
 using ScreenPainter = void (*)(bool force);
 
 void paint_status_wrapper(bool force) { paint_status(force); }
@@ -936,19 +1539,28 @@ void paint_list_wrapper(bool force) { paint_list(force); }
 void paint_detail_wrapper(bool force) { paint_detail(force); }
 void paint_help_wrapper(bool force) { paint_help(force); }
 void paint_nearby_wrapper(bool force) { paint_nearby(force); }
+void paint_ble_list_wrapper(bool force) { paint_ble_list(force); }
+void paint_wifi_list_wrapper(bool force) { paint_wifi_list(force); }
+void paint_settings_wrapper(bool force) { paint_settings(force); }
+void paint_home_wrapper(bool force) { paint_home(force); }
+void paint_meshtastic_wrapper(bool force) { paint_meshtastic(force); }
+void paint_gps_track_wrapper(bool force)  { paint_gps_track(force); }
+void paint_file_browser_wrapper(bool force){ paint_file_browser(force); }
 
 ScreenPainter screen_painter(Screen s) {
   switch (s) {
-  case Screen::kList:
-    return paint_list_wrapper;
-  case Screen::kDetail:
-    return paint_detail_wrapper;
-  case Screen::kHelp:
-    return paint_help_wrapper;
-  case Screen::kNearby:
-    return paint_nearby_wrapper;
-  default:
-    return paint_status_wrapper;
+  case Screen::kList:        return paint_list_wrapper;
+  case Screen::kDetail:      return paint_detail_wrapper;
+  case Screen::kHelp:        return paint_help_wrapper;
+  case Screen::kNearby:      return paint_nearby_wrapper;
+  case Screen::kBleList:     return paint_ble_list_wrapper;
+  case Screen::kWifiList:    return paint_wifi_list_wrapper;
+  case Screen::kSettings:    return paint_settings_wrapper;
+  case Screen::kStatus:      return paint_status_wrapper;
+  case Screen::kMeshtastic:  return paint_meshtastic_wrapper;
+  case Screen::kGpsTrack:    return paint_gps_track_wrapper;
+  case Screen::kFileBrowser: return paint_file_browser_wrapper;
+  default:                   return paint_home_wrapper;
   }
 }
 
@@ -971,6 +1583,36 @@ void reset_screen_cache(Screen s) {
     s_paint_nearby_start = SIZE_MAX;
     s_paint_nearby_count = SIZE_MAX;
     break;
+  case Screen::kBleList:
+    s_paint_ble_sel = SIZE_MAX;
+    s_paint_ble_start = SIZE_MAX;
+    s_paint_ble_count = SIZE_MAX;
+    break;
+  case Screen::kWifiList:
+    s_paint_wifi_sel = SIZE_MAX;
+    s_paint_wifi_start = SIZE_MAX;
+    s_paint_wifi_count = SIZE_MAX;
+    break;
+  case Screen::kSettings:
+    s_settings_painted = false;
+    break;
+  case Screen::kHome:
+    s_paint_home_sel = SIZE_MAX;
+    break;
+  case Screen::kMeshtastic:
+    s_paint_mesh_sel   = SIZE_MAX;
+    s_paint_mesh_start = SIZE_MAX;
+    s_paint_mesh_count = SIZE_MAX;
+    break;
+  case Screen::kGpsTrack:
+    s_paint_track_events = UINT32_MAX;
+    break;
+  case Screen::kFileBrowser:
+    s_files_loaded  = false;
+    s_files_loading = true;
+    s_paint_file_sel   = SIZE_MAX;
+    s_paint_file_count = SIZE_MAX;
+    break;
   default:
     s_status_static = false;
     break;
@@ -989,6 +1631,12 @@ void scroll_list(int delta) {
               s_detail_source == DetailSource::kNearby)) {
     sel = &s_nearby_sel;
     count = rf_sightings_count();
+  } else if (s_screen == Screen::kBleList) {
+    sel = &s_ble_sel;
+    count = rf_count_kind("ble");
+  } else if (s_screen == Screen::kWifiList) {
+    sel = &s_wifi_sel;
+    count = rf_count_kind("wifi");
   } else if (s_screen == Screen::kDetail &&
              s_detail_source == DetailSource::kFlock) {
     sel = &s_list_sel;
@@ -1036,7 +1684,8 @@ void leave_help() {
 }
 
 bool is_carousel(Screen s) {
-  return s == Screen::kStatus || s == Screen::kList || s == Screen::kNearby;
+  (void)s;
+  return false;
 }
 
 int carousel_index(Screen s) {
@@ -1084,6 +1733,42 @@ void open_detail() {
     goto_screen(Screen::kDetail);
     return;
   }
+  if (s_screen == Screen::kBleList) {
+    if (rf_count_kind("ble") == 0) return;
+    // Map ble_sel back to nearby_sel (find the BLE device at s_ble_sel)
+    RfDevice d{};
+    if (!rf_get_kind(s_ble_sel, "ble", &d)) return;
+    // Find its global index in rf_sightings
+    const size_t total = rf_sightings_count();
+    for (size_t i = 0; i < total; i++) {
+      RfDevice candidate{};
+      if (rf_sightings_get(i, &candidate) && strcmp(candidate.mac, d.mac) == 0) {
+        s_nearby_sel = i;
+        break;
+      }
+    }
+    s_detail_source = DetailSource::kNearby;
+    s_detail_return = Screen::kBleList;
+    goto_screen(Screen::kDetail);
+    return;
+  }
+  if (s_screen == Screen::kWifiList) {
+    if (rf_count_kind("wifi") == 0) return;
+    RfDevice d{};
+    if (!rf_get_kind(s_wifi_sel, "wifi", &d)) return;
+    const size_t total = rf_sightings_count();
+    for (size_t i = 0; i < total; i++) {
+      RfDevice candidate{};
+      if (rf_sightings_get(i, &candidate) && strcmp(candidate.mac, d.mac) == 0) {
+        s_nearby_sel = i;
+        break;
+      }
+    }
+    s_detail_source = DetailSource::kNearby;
+    s_detail_return = Screen::kWifiList;
+    goto_screen(Screen::kDetail);
+    return;
+  }
   if (s_screen == Screen::kList ||
       (s_screen == Screen::kDetail &&
        s_detail_source == DetailSource::kFlock)) {
@@ -1106,20 +1791,41 @@ void cycle_screen() {
 
 void paint_screen_soft_keys() {
   switch (s_screen) {
+  case Screen::kHome:
+    chrome.paint_soft_keys("Select", '\n', "Help", 'h', "", 0);
+    break;
   case Screen::kStatus:
-    chrome.paint_soft_keys("List", 'l', "Help", 'h', "Nearby", 'n');
+    chrome.paint_soft_keys("Home", 'q', "Help", 'h', "List", 'l');
     break;
   case Screen::kList:
-    chrome.paint_soft_keys("Status", 's', "Detail", 'd', "Nearby", 'n');
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "BLE", 'b');
     break;
   case Screen::kNearby:
-    chrome.paint_soft_keys("List", 'l', "Detail", 'd', "Status", 's');
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "WiFi", 'w');
+    break;
+  case Screen::kBleList:
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "WiFi", 'w');
+    break;
+  case Screen::kWifiList:
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "BLE", 'b');
+    break;
+  case Screen::kSettings:
+    chrome.paint_soft_keys("Home", 'q', "", 0, "", 0);
     break;
   case Screen::kDetail:
     chrome.paint_soft_keys("Back", 0, "", 0, "Help", 'h');
     break;
   case Screen::kHelp:
     chrome.paint_soft_keys("", 0, "Close", 'h', "", 0);
+    break;
+  case Screen::kMeshtastic:
+    chrome.paint_soft_keys("Home", 'q', "", 0, "", 0);
+    break;
+  case Screen::kGpsTrack:
+    chrome.paint_soft_keys("Home", 'q', "Clear", 'c', "", 0);
+    break;
+  case Screen::kFileBrowser:
+    chrome.paint_soft_keys("Home", 'q', "Open", 'd', "Up", 'u');
     break;
   default:
     break;
@@ -1142,9 +1848,6 @@ void redraw() {
   chrome.paint_header(screen_title(s_screen), hdr_page, s_bat_mv, s_bat_usb,
                       flock_alert, screen_changed);
   screen_painter(s_screen)(screen_changed);
-  if (is_carousel(s_screen)) {
-    chrome.paint_page_dots(kCarouselPages, (size_t)carousel_index(s_screen));
-  }
   paint_screen_soft_keys();
 
   s_last_draw = millis();
@@ -1218,51 +1921,74 @@ void poll_trackball() {
     }
 
     switch (i) {
-    case 0:
-      if (is_carousel(s_screen)) {
-        trackball_schedule_page(+1);
-      } else if (s_screen == Screen::kDetail) {
-        goto_screen(s_detail_return);
-      }
-      break;
-    case 1:
-      if (s_screen == Screen::kStatus) {
-        trackball_note_vertical();
-        scroll_status(-1);
-      } else if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
-                 s_screen == Screen::kNearby) {
-        list_move(-1);
-      }
-      break;
-    case 2:
-      if (is_carousel(s_screen)) {
-        trackball_schedule_page(-1);
-      } else if (s_screen == Screen::kDetail &&
-                 s_detail_source == DetailSource::kFlock) {
-        goto_screen(Screen::kStatus);
-      } else if (s_screen == Screen::kDetail &&
-                 s_detail_source == DetailSource::kNearby) {
-        goto_screen(Screen::kNearby);
-      }
-      break;
-    case 3:
-      if (s_screen == Screen::kStatus) {
-        trackball_note_vertical();
-        scroll_status(1);
-      } else if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
-                 s_screen == Screen::kNearby) {
-        list_move(1);
-      }
-      break;
-    case 4:
-      if (is_carousel(s_screen)) {
-        if (s_screen == Screen::kStatus) {
-          goto_screen(Screen::kList);
-        } else {
-          open_detail();
+    case 0: // RIGHT
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel + 1 < kNumApps) { s_home_sel++; s_dirty = true; }
+      } else if (s_screen == Screen::kSettings) {
+        if (s_settings_sel == 0 && s_brightness < 16) {
+          s_brightness++;
+          tdeck_set_brightness(s_brightness);
+          s_settings_painted = false;
+          s_dirty = true;
         }
       } else if (s_screen == Screen::kDetail) {
         goto_screen(s_detail_return);
+      }
+      break;
+    case 1: // UP
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel >= 3) { s_home_sel -= 3; s_dirty = true; }
+      } else if (s_screen == Screen::kStatus) {
+        trackball_note_vertical();
+        scroll_status(-1);
+      } else if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+                 s_screen == Screen::kBleList || s_screen == Screen::kWifiList ||
+                 s_screen == Screen::kDetail) {
+        list_move(-1);
+      } else if (s_screen == Screen::kFileBrowser) {
+        if (s_file_sel > 0) { s_file_sel--; s_dirty = true; }
+      }
+      break;
+    case 2: // LEFT
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel > 0) { s_home_sel--; s_dirty = true; }
+      } else if (s_screen == Screen::kSettings) {
+        if (s_settings_sel == 0 && s_brightness > 1) {
+          s_brightness--;
+          tdeck_set_brightness(s_brightness);
+          s_settings_painted = false;
+          s_dirty = true;
+        }
+      } else {
+        goto_screen(Screen::kHome);
+      }
+      break;
+    case 3: // DOWN
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel + 3 < kNumApps) { s_home_sel += 3; s_dirty = true; }
+      } else if (s_screen == Screen::kStatus) {
+        trackball_note_vertical();
+        scroll_status(1);
+      } else if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+                 s_screen == Screen::kBleList || s_screen == Screen::kWifiList ||
+                 s_screen == Screen::kDetail) {
+        list_move(1);
+      } else if (s_screen == Screen::kFileBrowser) {
+        if (s_file_sel + 1 < s_file_count) { s_file_sel++; s_dirty = true; }
+      }
+      break;
+    case 4: // CLICK
+      if (s_screen == Screen::kHome) {
+        open_home_app(s_home_sel);
+      } else if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+                 s_screen == Screen::kBleList || s_screen == Screen::kWifiList) {
+        open_detail();
+      } else if (s_screen == Screen::kDetail) {
+        goto_screen(s_detail_return);
+      } else if (s_screen == Screen::kFileBrowser) {
+#ifdef FD_ENABLE_SD
+        file_browser_open_selected();
+#endif
       }
       break;
     default:
@@ -1278,7 +2004,7 @@ void handle_key(char key) {
     return;
   }
   if (s_screen == Screen::kHelp) {
-    if (key == 27 || key == 'h' || key == 'H' || key == 's' || key == 'S') {
+    if (key == 27 || key == 'h' || key == 'H' || key == 'q' || key == 'Q') {
       leave_help();
     }
     return;
@@ -1287,29 +2013,97 @@ void handle_key(char key) {
     show_help();
     return;
   }
-  if (key == 's' || key == 'S' || key == 27) {
-    goto_screen(Screen::kStatus);
+  // q / ESC → home
+  if (key == 'q' || key == 'Q' || key == 27) {
+    goto_screen(Screen::kHome);
     return;
   }
-  if (key == 'l' || key == 'L') {
-    goto_screen(Screen::kList);
+  // G = jump to last row in lists (uppercase only; checked before the app-key
+  // loop so it is not swallowed by the case-insensitive GPS 'g' match).
+  if (key == 'G') {
+    if (s_screen == Screen::kNearby ||
+        (s_screen == Screen::kDetail &&
+         s_detail_source == DetailSource::kNearby)) {
+      const size_t n = rf_sightings_count();
+      if (n > 0) { s_nearby_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kBleList) {
+      const size_t n = rf_count_kind("ble");
+      if (n > 0) { s_ble_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kWifiList) {
+      const size_t n = rf_count_kind("wifi");
+      if (n > 0) { s_wifi_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kList ||
+               (s_screen == Screen::kDetail &&
+                s_detail_source == DetailSource::kFlock)) {
+      if (s_hit_count > 0) { s_list_sel = s_hit_count - 1; s_dirty = true; }
+    }
     return;
   }
-  if (key == 'n' || key == 'N') {
-    goto_screen(Screen::kNearby);
+  // Central app shortcut dispatch — all kApps keys, case-insensitive.
+  // Adding a new screen to the home grid automatically gives it a global key.
+  for (size_t i = 0; i < kNumApps; i++) {
+    const char k = kApps[i].key;
+    if (key == k || key == (char)(k & ~0x20)) {
+      goto_screen(kApps[i].target);
+      return;
+    }
+  }
+  // File browser screen navigation
+  if (s_screen == Screen::kFileBrowser) {
+    if (key == 'd' || key == 'D' || key == '\n' || key == '\r') {
+#ifdef FD_ENABLE_SD
+      file_browser_open_selected();
+#endif
+    } else if (key == 'u' || key == 'U') {
+#ifdef FD_ENABLE_SD
+      file_browser_go_up();
+#endif
+    } else if (key == 'j' || key == 'J') {
+      if (s_file_sel + 1 < s_file_count) { s_file_sel++; s_dirty = true; }
+    } else if (key == 'k' || key == 'K') {
+      if (s_file_sel > 0) { s_file_sel--; s_dirty = true; }
+    }
+    return;
+  }
+  // GPS track screen
+  if (s_screen == Screen::kGpsTrack) {
+    if (key == 'c' || key == 'C') {
+#ifdef FD_ENABLE_GPS
+      gps_track_clear();
+      s_paint_track_events = UINT32_MAX;
+      s_dirty = true;
+#endif
+    }
+    return;
+  }
+  // Home screen navigation
+  if (s_screen == Screen::kHome) {
+    if (key == '\n' || key == '\r') {
+      open_home_app(s_home_sel);
+    } else if (key == 'j' || key == 'J') {
+      if (s_home_sel + 3 < kNumApps) { s_home_sel += 3; s_dirty = true; }
+    } else if (key == 'k' || key == 'K') {
+      if (s_home_sel >= 3) { s_home_sel -= 3; s_dirty = true; }
+    } else if (key == ' ') {
+      if (s_home_sel + 1 < kNumApps) { s_home_sel++; s_dirty = true; }
+    }
+    return;
+  }
+  // Settings screen adjustments
+  if (s_screen == Screen::kSettings) {
+    if (key == 'j' || key == 'J') {
+      if (s_brightness < 16) { s_brightness++; tdeck_set_brightness(s_brightness); s_settings_painted = false; s_dirty = true; }
+    } else if (key == 'k' || key == 'K') {
+      if (s_brightness > 1) { s_brightness--; tdeck_set_brightness(s_brightness); s_settings_painted = false; s_dirty = true; }
+    }
     return;
   }
   if (key == 'd' || key == 'D' || key == '\n' || key == '\r') {
     if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+        s_screen == Screen::kBleList || s_screen == Screen::kWifiList ||
         s_screen == Screen::kDetail) {
       open_detail();
-    } else {
-      goto_screen(Screen::kList);
     }
-    return;
-  }
-  if (key == ' ' || key == 'o' || key == 'O') {
-    cycle_screen();
     return;
   }
   if (key == 'j' || key == 'J') {
@@ -1334,35 +2128,6 @@ void handle_key(char key) {
         serial_out_info("screenshot failed");
       }
       // Do not emit info lines after begin — JSON would land between FDSC and pixels.
-    }
-    return;
-  }
-  if (key == 'g') {
-    if (s_screen == Screen::kNearby ||
-        (s_screen == Screen::kDetail &&
-         s_detail_source == DetailSource::kNearby)) {
-      const size_t n = rf_sightings_count();
-      if (n > 0) {
-        s_nearby_sel = n - 1;
-        s_dirty = true;
-      }
-    } else if (s_hit_count > 0) {
-      s_list_sel = s_hit_count - 1;
-      s_dirty = true;
-    }
-    return;
-  }
-  if (key == 'G') {
-    if (s_screen == Screen::kNearby ||
-        (s_screen == Screen::kDetail &&
-         s_detail_source == DetailSource::kNearby)) {
-      if (rf_sightings_count() > 0) {
-        s_nearby_sel = 0;
-        s_dirty = true;
-      }
-    } else if (s_hit_count > 0) {
-      s_list_sel = 0;
-      s_dirty = true;
     }
     return;
   }
@@ -1595,6 +2360,57 @@ void tdeck_ui_loop() {
   if (s_screen == Screen::kNearby &&
       rf_sightings_count() != s_paint_nearby_count) {
     s_dirty = true;
+  }
+
+  if (s_screen == Screen::kBleList && rf_sightings_count() != s_paint_ble_count) {
+    s_dirty = true;
+  }
+
+  if (s_screen == Screen::kWifiList && rf_sightings_count() != s_paint_wifi_count) {
+    s_dirty = true;
+  }
+
+  if (s_screen == Screen::kHome) {
+    static uint32_t s_home_ev_last = UINT32_MAX;
+    static uint32_t s_home_hit_last = UINT32_MAX;
+    const uint32_t ev = rf_sightings_events();
+    if (ev != s_home_ev_last || s_hit_total != s_home_hit_last) {
+      s_home_ev_last = ev;
+      s_home_hit_last = s_hit_total;
+      s_paint_home_sel = SIZE_MAX;
+      s_dirty = true;
+    }
+  }
+
+  // Meshtastic: refresh when new packets arrive
+  if (s_screen == Screen::kMeshtastic) {
+#ifdef FD_ENABLE_LORA
+    static uint32_t s_mesh_ev_last = UINT32_MAX;
+    const uint32_t mev = lora_sightings_events();
+    if (mev != s_mesh_ev_last) {
+      s_mesh_ev_last = mev;
+      s_dirty = true;
+    }
+#endif
+  }
+  // GPS track: refresh when new point added
+  if (s_screen == Screen::kGpsTrack) {
+#ifdef FD_ENABLE_GPS
+    static uint32_t s_gps_ev_last = UINT32_MAX;
+    const uint32_t gev = gps_track_events();
+    if (gev != s_gps_ev_last) {
+      s_gps_ev_last = gev;
+      s_dirty = true;
+    }
+#endif
+  }
+  // File browser: load directory when requested (before paint, on SPI bus)
+  if (s_screen == Screen::kFileBrowser && s_files_loading && !s_files_loaded) {
+#ifdef FD_ENABLE_SD
+    spi_bus_idle();
+    file_browser_load(s_file_path);
+    s_dirty = true;
+#endif
   }
 
   if (s_hit_alert_until != 0 && millis() >= s_hit_alert_until) {
