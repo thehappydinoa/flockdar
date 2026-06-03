@@ -44,14 +44,18 @@ constexpr int kListTopY = TdeckTheme::kBodyTop + 4;
 using namespace TdeckTheme;
 
 enum class Screen : uint8_t {
-  kStatus = 0,
-  kList = 1,
-  kDetail = 2,
-  kHelp = 3,
-  kNearby = 4,
+  kHome = 0,
+  kStatus = 1,
+  kList = 2,
+  kDetail = 3,
+  kHelp = 4,
+  kNearby = 5,
+  kBleList = 6,
+  kWifiList = 7,
+  kSettings = 8,
 };
 
-constexpr size_t kCarouselPages = 3;
+constexpr size_t kCarouselPages = 0;
 
 // Status field layout (y offsets from kStatContentY).
 constexpr int kStatContentY = kBodyTop + 4;
@@ -189,8 +193,8 @@ HitLine s_hits[kMaxHits];
 size_t s_hit_count = 0;
 size_t s_list_sel = 0;
 size_t s_nearby_sel = 0;
-Screen s_screen = Screen::kStatus;
-Screen s_return_screen = Screen::kStatus;
+Screen s_screen = Screen::kHome;
+Screen s_return_screen = Screen::kHome;
 DetailSource s_detail_source = DetailSource::kFlock;
 Screen s_detail_return = Screen::kList;
 
@@ -199,7 +203,7 @@ bool s_dirty = true;
 uint8_t s_brightness = 16;
 uint32_t s_last_input_ms = 0;
 bool s_display_asleep = false;
-Screen s_painted = Screen::kStatus;
+Screen s_painted = Screen::kHome;
 bool s_status_static = false;
 
 uint32_t s_paint_hits = UINT32_MAX;
@@ -232,6 +236,22 @@ uint32_t s_last_bat_poll = 0;
 bool s_help_painted = false;
 uint32_t s_help_key_block_until = 0;
 int s_paint_status_scroll = -1;
+
+size_t s_home_sel = 0;
+size_t s_paint_home_sel = SIZE_MAX;
+
+size_t s_ble_sel = 0;
+size_t s_paint_ble_sel = SIZE_MAX;
+size_t s_paint_ble_start = SIZE_MAX;
+size_t s_paint_ble_count = SIZE_MAX;
+
+size_t s_wifi_sel = 0;
+size_t s_paint_wifi_sel = SIZE_MAX;
+size_t s_paint_wifi_start = SIZE_MAX;
+size_t s_paint_wifi_count = SIZE_MAX;
+
+uint8_t s_settings_sel = 0;
+bool s_settings_painted = false;
 uint32_t s_hit_alert_until = 0;
 constexpr uint32_t kHitAlertMs = 700;
 
@@ -265,10 +285,15 @@ void kb_drain() {
 
 const char *screen_title(Screen s) {
   switch (s) {
-  case Screen::kDetail:
-    return "DETAIL";
-  default:
-    return "FLOCKDAR";
+  case Screen::kHome:     return "FLOCKDAR";
+  case Screen::kStatus:   return "STATUS";
+  case Screen::kList:     return "FLOCK HITS";
+  case Screen::kDetail:   return "DETAIL";
+  case Screen::kNearby:   return "ALL DEVICES";
+  case Screen::kBleList:  return "BLE SCAN";
+  case Screen::kWifiList: return "WIFI SCAN";
+  case Screen::kSettings: return "SETTINGS";
+  default:                return "FLOCKDAR";
   }
 }
 
@@ -389,6 +414,29 @@ const char *rf_vendor(const RfDevice &d) {
     if (v) return v;
   }
   return oui_vendor_name(d.mac_raw);
+}
+
+static size_t rf_count_kind(const char *kind) {
+  const size_t total = rf_sightings_count();
+  size_t n = 0;
+  for (size_t i = 0; i < total; i++) {
+    RfDevice d{};
+    if (rf_sightings_get(i, &d) && strcmp(d.kind, kind) == 0) n++;
+  }
+  return n;
+}
+
+static bool rf_get_kind(size_t index, const char *kind, RfDevice *out) {
+  const size_t total = rf_sightings_count();
+  size_t found = 0;
+  for (size_t i = 0; i < total; i++) {
+    RfDevice d{};
+    if (!rf_sightings_get(i, &d)) continue;
+    if (strcmp(d.kind, kind) != 0) continue;
+    if (found == index) { *out = d; return true; }
+    found++;
+  }
+  return false;
 }
 
 void push_hit(const Detection &d) {
@@ -739,6 +787,200 @@ void paint_nearby(bool force) {
                                 nearby_icon_row_fn, kListTopY, force);
 }
 
+void ble_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
+  RfDevice d{};
+  if (!out || !rf_get_kind(index, "ble", &d)) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kUnknown);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
+    }
+    return;
+  }
+  const char *vendor = rf_vendor(d);
+  const DevIcon icon = classify_rf_device(d, vendor);
+  out->icon = static_cast<uint8_t>(icon);
+  if (vendor) {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", vendor, dev_icon_label(icon));
+  } else {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", d.mac, dev_icon_label(icon));
+  }
+  if (d.label[0] && strcmp(d.label, "ble") != 0) {
+    snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.label, d.rssi, (unsigned long)d.seen);
+  } else {
+    snprintf(out->line2, sizeof(out->line2), "%s  %d dBm  x%lu", d.mac, d.rssi, (unsigned long)d.seen);
+  }
+}
+
+void paint_ble_list(bool force) {
+  const size_t count = rf_count_kind("ble");
+  chrome.paint_icon_scroll_list(count, &s_ble_sel, &s_paint_ble_sel,
+                                &s_paint_ble_start, &s_paint_ble_count,
+                                ble_icon_row_fn, kListTopY, force);
+}
+
+void wifi_icon_row_fn(size_t index, TdeckChrome::IconRow *out) {
+  RfDevice d{};
+  if (!out || !rf_get_kind(index, "wifi", &d)) {
+    if (out) {
+      out->icon = static_cast<uint8_t>(DevIcon::kUnknown);
+      strncpy(out->line1, "--", sizeof(out->line1));
+      out->line2[0] = '\0';
+    }
+    return;
+  }
+  const char *vendor = rf_vendor(d);
+  const DevIcon icon = classify_rf_device(d, vendor);
+  out->icon = static_cast<uint8_t>(icon);
+  if (vendor) {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", vendor, dev_icon_label(icon));
+  } else {
+    snprintf(out->line1, sizeof(out->line1), "%s · %s", d.mac, dev_icon_label(icon));
+  }
+  snprintf(out->line2, sizeof(out->line2), "ch%u  %d dBm  x%lu",
+           (unsigned)d.channel, d.rssi, (unsigned long)d.seen);
+}
+
+void paint_wifi_list(bool force) {
+  const size_t count = rf_count_kind("wifi");
+  chrome.paint_icon_scroll_list(count, &s_wifi_sel, &s_paint_wifi_sel,
+                                &s_paint_wifi_start, &s_paint_wifi_count,
+                                wifi_icon_row_fn, kListTopY, force);
+}
+
+static const char *brightness_label(uint8_t b) {
+  if (b <= 4) return "dim";
+  if (b <= 8) return "low";
+  if (b <= 12) return "medium";
+  return "bright";
+}
+
+void paint_settings(bool force) {
+  if (!force && s_settings_painted) return;
+  chrome.clear_body();
+  int y = kListTopY;
+  chrome.paint_section_label(y, "DISPLAY");
+  y += kSectionH + 4;
+
+  // Brightness row
+  const bool br_sel = (s_settings_sel == 0);
+  const uint16_t br_bg = br_sel ? kSurface : kBg;
+  disp().fillRect(0, y - 1, disp().width(), kFieldH + 2, br_bg);
+  char br_val[24];
+  snprintf(br_val, sizeof(br_val), "%s (%u/16)", brightness_label(s_brightness), (unsigned)s_brightness);
+  chrome.paint_field(y, "Brightness", br_val);
+  if (br_sel) {
+    disp().drawRect(2, y - 2, disp().width() - 4, kFieldH + 3, kAccent);
+    chrome.paint_text(disp().width() - 20, y, "< >", kFontLabel, kAccentDim, br_bg);
+  }
+  y += kFieldH + 6;
+
+  chrome.paint_divider(y);
+  y += 8;
+  chrome.paint_text(4, y, "< > adjust  Enter confirm", kFontLabel, kTextMuted, kBg);
+  s_settings_painted = true;
+}
+
+struct AppDef {
+  DevIcon icon;
+  const char *title;
+  const char *subtitle;
+  char key;
+  Screen target;
+};
+
+static const Screen kHomeAppScreens[] = {
+  Screen::kList,
+  Screen::kWifiList,
+  Screen::kBleList,
+  Screen::kNearby,
+  Screen::kStatus,
+  Screen::kSettings,
+};
+
+static size_t app_count_for(Screen s) {
+  switch (s) {
+  case Screen::kList:     return s_hit_count;
+  case Screen::kBleList:  return rf_count_kind("ble");
+  case Screen::kWifiList: return rf_count_kind("wifi");
+  case Screen::kNearby:   return rf_sightings_count();
+  default:                return SIZE_MAX;
+  }
+}
+
+void paint_home_tile(int x, int y, int w, int h, size_t idx, bool selected) {
+  static const AppDef kApps[] = {
+    { DevIcon::kCamera,  "FLOCK HITS",  "detections",   'l', Screen::kList },
+    { DevIcon::kRouter,  "WIFI SCAN",   "wifi devices", 'w', Screen::kWifiList },
+    { DevIcon::kUnknown, "BLE SCAN",    "ble devices",  'b', Screen::kBleList },
+    { DevIcon::kPhone,   "ALL DEVICES", "rf sightings", 'n', Screen::kNearby },
+    { DevIcon::kBoot,    "STATUS",      "system info",  's', Screen::kStatus },
+    { DevIcon::kLock,    "SETTINGS",    "preferences",  'x', Screen::kSettings },
+  };
+
+  const uint16_t bg = selected ? kSurface : kBg;
+  const uint16_t border = selected ? kFlock : kDivider;
+  disp().fillRect(x, y, w, h, bg);
+  disp().drawRect(x, y, w, h, border);
+
+  if (idx >= 6) return;
+  const AppDef &app = kApps[idx];
+
+  // Icon
+  draw_dev_icon(disp(), app.icon, x + 6, y + 8, selected ? kFlock : kTextMuted, bg);
+
+  // Title
+  disp().setTextColor(selected ? kText : kTextMuted, bg);
+  disp().setTextDatum(TL_DATUM);
+  disp().drawString(app.title, x + 24, y + 10, kFontLabel);
+
+  // Count or subtitle
+  const size_t cnt = app_count_for(app.target);
+  char sub[24];
+  if (cnt != SIZE_MAX) {
+    snprintf(sub, sizeof(sub), "%lu %s", (unsigned long)cnt, app.subtitle);
+  } else {
+    strncpy(sub, app.subtitle, sizeof(sub) - 1);
+    sub[sizeof(sub) - 1] = '\0';
+  }
+  disp().setTextColor(kTextMuted, bg);
+  disp().drawString(sub, x + 6, y + 28, kFontLabel);
+
+  // Key hint
+  char hint[6];
+  snprintf(hint, sizeof(hint), "[%c]", app.key);
+  disp().setTextColor(kAccentDim, bg);
+  disp().drawString(hint, x + 6, y + h - 14, kFontLabel);
+}
+
+void paint_home(bool force) {
+  if (!force && s_home_sel == s_paint_home_sel) return;
+  chrome.clear_body();
+
+  constexpr int kTileW = 115;
+  constexpr int kTileH = 80;
+  constexpr int kGapX = 4;
+  constexpr int kGapY = 4;
+  constexpr int kMarginX = 3;
+  constexpr int kMarginY = 4;
+  const int col_x[2] = { kMarginX, kMarginX + kTileW + kGapX };
+  const int top = kBodyTop + kMarginY;
+
+  for (size_t i = 0; i < 6; i++) {
+    const int col = (int)(i % 2);
+    const int row = (int)(i / 2);
+    const int tx = col_x[col];
+    const int ty = top + row * (kTileH + kGapY);
+    paint_home_tile(tx, ty, kTileW, kTileH, i, i == s_home_sel);
+  }
+
+  s_paint_home_sel = s_home_sel;
+}
+
+void open_home_app(size_t idx) {
+  if (idx >= 6) return;
+  goto_screen(kHomeAppScreens[idx]);
+}
 
 void paint_detail(bool force) {
   const uint8_t mode =
@@ -900,19 +1142,23 @@ void paint_help(bool force) {
   chrome.clear_body();
   const char *lines[] = {
       "NAVIGATION",
-      "  L/R     prev / next page",
+      "  q Esc   home menu",
+      "  enter   open / select",
       "  U/D     scroll (lists)",
-      "  click   select / detail",
-      "  space   next page",
-      "KEYS",
+      "  L/R     navigate home tiles",
+      "APPS",
+      "  l       flock hits",
+      "  w       wifi scan",
+      "  b       ble scan",
+      "  n       all devices",
       "  s       status",
-      "  l n     hits / nearby",
-      "  d       detail",
-      "  h Esc   help",
+      "  x       settings",
+      "KEYS",
+      "  d       detail view",
+      "  h       help (close)",
       "  j k     scroll list",
       "  g G     last / first row",
       "  p       screenshot",
-      "  idle    backlight off (key/wake)",
       nullptr,
   };
   int y = kListTopY;
@@ -936,19 +1182,22 @@ void paint_list_wrapper(bool force) { paint_list(force); }
 void paint_detail_wrapper(bool force) { paint_detail(force); }
 void paint_help_wrapper(bool force) { paint_help(force); }
 void paint_nearby_wrapper(bool force) { paint_nearby(force); }
+void paint_ble_list_wrapper(bool force) { paint_ble_list(force); }
+void paint_wifi_list_wrapper(bool force) { paint_wifi_list(force); }
+void paint_settings_wrapper(bool force) { paint_settings(force); }
+void paint_home_wrapper(bool force) { paint_home(force); }
 
 ScreenPainter screen_painter(Screen s) {
   switch (s) {
-  case Screen::kList:
-    return paint_list_wrapper;
-  case Screen::kDetail:
-    return paint_detail_wrapper;
-  case Screen::kHelp:
-    return paint_help_wrapper;
-  case Screen::kNearby:
-    return paint_nearby_wrapper;
-  default:
-    return paint_status_wrapper;
+  case Screen::kList:     return paint_list_wrapper;
+  case Screen::kDetail:   return paint_detail_wrapper;
+  case Screen::kHelp:     return paint_help_wrapper;
+  case Screen::kNearby:   return paint_nearby_wrapper;
+  case Screen::kBleList:  return paint_ble_list_wrapper;
+  case Screen::kWifiList: return paint_wifi_list_wrapper;
+  case Screen::kSettings: return paint_settings_wrapper;
+  case Screen::kStatus:   return paint_status_wrapper;
+  default:                return paint_home_wrapper;
   }
 }
 
@@ -971,6 +1220,22 @@ void reset_screen_cache(Screen s) {
     s_paint_nearby_start = SIZE_MAX;
     s_paint_nearby_count = SIZE_MAX;
     break;
+  case Screen::kBleList:
+    s_paint_ble_sel = SIZE_MAX;
+    s_paint_ble_start = SIZE_MAX;
+    s_paint_ble_count = SIZE_MAX;
+    break;
+  case Screen::kWifiList:
+    s_paint_wifi_sel = SIZE_MAX;
+    s_paint_wifi_start = SIZE_MAX;
+    s_paint_wifi_count = SIZE_MAX;
+    break;
+  case Screen::kSettings:
+    s_settings_painted = false;
+    break;
+  case Screen::kHome:
+    s_paint_home_sel = SIZE_MAX;
+    break;
   default:
     s_status_static = false;
     break;
@@ -989,6 +1254,12 @@ void scroll_list(int delta) {
               s_detail_source == DetailSource::kNearby)) {
     sel = &s_nearby_sel;
     count = rf_sightings_count();
+  } else if (s_screen == Screen::kBleList) {
+    sel = &s_ble_sel;
+    count = rf_count_kind("ble");
+  } else if (s_screen == Screen::kWifiList) {
+    sel = &s_wifi_sel;
+    count = rf_count_kind("wifi");
   } else if (s_screen == Screen::kDetail &&
              s_detail_source == DetailSource::kFlock) {
     sel = &s_list_sel;
@@ -1036,7 +1307,8 @@ void leave_help() {
 }
 
 bool is_carousel(Screen s) {
-  return s == Screen::kStatus || s == Screen::kList || s == Screen::kNearby;
+  (void)s;
+  return false;
 }
 
 int carousel_index(Screen s) {
@@ -1084,6 +1356,42 @@ void open_detail() {
     goto_screen(Screen::kDetail);
     return;
   }
+  if (s_screen == Screen::kBleList) {
+    if (rf_count_kind("ble") == 0) return;
+    // Map ble_sel back to nearby_sel (find the BLE device at s_ble_sel)
+    RfDevice d{};
+    if (!rf_get_kind(s_ble_sel, "ble", &d)) return;
+    // Find its global index in rf_sightings
+    const size_t total = rf_sightings_count();
+    for (size_t i = 0; i < total; i++) {
+      RfDevice candidate{};
+      if (rf_sightings_get(i, &candidate) && strcmp(candidate.mac, d.mac) == 0) {
+        s_nearby_sel = i;
+        break;
+      }
+    }
+    s_detail_source = DetailSource::kNearby;
+    s_detail_return = Screen::kBleList;
+    goto_screen(Screen::kDetail);
+    return;
+  }
+  if (s_screen == Screen::kWifiList) {
+    if (rf_count_kind("wifi") == 0) return;
+    RfDevice d{};
+    if (!rf_get_kind(s_wifi_sel, "wifi", &d)) return;
+    const size_t total = rf_sightings_count();
+    for (size_t i = 0; i < total; i++) {
+      RfDevice candidate{};
+      if (rf_sightings_get(i, &candidate) && strcmp(candidate.mac, d.mac) == 0) {
+        s_nearby_sel = i;
+        break;
+      }
+    }
+    s_detail_source = DetailSource::kNearby;
+    s_detail_return = Screen::kWifiList;
+    goto_screen(Screen::kDetail);
+    return;
+  }
   if (s_screen == Screen::kList ||
       (s_screen == Screen::kDetail &&
        s_detail_source == DetailSource::kFlock)) {
@@ -1106,14 +1414,26 @@ void cycle_screen() {
 
 void paint_screen_soft_keys() {
   switch (s_screen) {
+  case Screen::kHome:
+    chrome.paint_soft_keys("Select", '\n', "Help", 'h', "", 0);
+    break;
   case Screen::kStatus:
-    chrome.paint_soft_keys("List", 'l', "Help", 'h', "Nearby", 'n');
+    chrome.paint_soft_keys("Home", 'q', "Help", 'h', "List", 'l');
     break;
   case Screen::kList:
-    chrome.paint_soft_keys("Status", 's', "Detail", 'd', "Nearby", 'n');
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "BLE", 'b');
     break;
   case Screen::kNearby:
-    chrome.paint_soft_keys("List", 'l', "Detail", 'd', "Status", 's');
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "WiFi", 'w');
+    break;
+  case Screen::kBleList:
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "WiFi", 'w');
+    break;
+  case Screen::kWifiList:
+    chrome.paint_soft_keys("Home", 'q', "Detail", 'd', "BLE", 'b');
+    break;
+  case Screen::kSettings:
+    chrome.paint_soft_keys("Home", 'q', "", 0, "", 0);
     break;
   case Screen::kDetail:
     chrome.paint_soft_keys("Back", 0, "", 0, "Help", 'h');
@@ -1142,9 +1462,6 @@ void redraw() {
   chrome.paint_header(screen_title(s_screen), hdr_page, s_bat_mv, s_bat_usb,
                       flock_alert, screen_changed);
   screen_painter(s_screen)(screen_changed);
-  if (is_carousel(s_screen)) {
-    chrome.paint_page_dots(kCarouselPages, (size_t)carousel_index(s_screen));
-  }
   paint_screen_soft_keys();
 
   s_last_draw = millis();
@@ -1218,49 +1535,64 @@ void poll_trackball() {
     }
 
     switch (i) {
-    case 0:
-      if (is_carousel(s_screen)) {
-        trackball_schedule_page(+1);
+    case 0: // RIGHT
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel < 5) { s_home_sel++; s_dirty = true; }
+      } else if (s_screen == Screen::kSettings) {
+        if (s_settings_sel == 0 && s_brightness < 16) {
+          s_brightness++;
+          tdeck_set_brightness(s_brightness);
+          s_settings_painted = false;
+          s_dirty = true;
+        }
       } else if (s_screen == Screen::kDetail) {
         goto_screen(s_detail_return);
       }
       break;
-    case 1:
-      if (s_screen == Screen::kStatus) {
+    case 1: // UP
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel >= 2) { s_home_sel -= 2; s_dirty = true; }
+      } else if (s_screen == Screen::kStatus) {
         trackball_note_vertical();
         scroll_status(-1);
-      } else if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
-                 s_screen == Screen::kNearby) {
+      } else if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+                 s_screen == Screen::kBleList || s_screen == Screen::kWifiList ||
+                 s_screen == Screen::kDetail) {
         list_move(-1);
       }
       break;
-    case 2:
-      if (is_carousel(s_screen)) {
-        trackball_schedule_page(-1);
-      } else if (s_screen == Screen::kDetail &&
-                 s_detail_source == DetailSource::kFlock) {
-        goto_screen(Screen::kStatus);
-      } else if (s_screen == Screen::kDetail &&
-                 s_detail_source == DetailSource::kNearby) {
-        goto_screen(Screen::kNearby);
+    case 2: // LEFT
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel > 0) { s_home_sel--; s_dirty = true; }
+      } else if (s_screen == Screen::kSettings) {
+        if (s_settings_sel == 0 && s_brightness > 1) {
+          s_brightness--;
+          tdeck_set_brightness(s_brightness);
+          s_settings_painted = false;
+          s_dirty = true;
+        }
+      } else {
+        goto_screen(Screen::kHome);
       }
       break;
-    case 3:
-      if (s_screen == Screen::kStatus) {
+    case 3: // DOWN
+      if (s_screen == Screen::kHome) {
+        if (s_home_sel <= 3) { s_home_sel += 2; s_dirty = true; }
+      } else if (s_screen == Screen::kStatus) {
         trackball_note_vertical();
         scroll_status(1);
-      } else if (s_screen == Screen::kList || s_screen == Screen::kDetail ||
-                 s_screen == Screen::kNearby) {
+      } else if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+                 s_screen == Screen::kBleList || s_screen == Screen::kWifiList ||
+                 s_screen == Screen::kDetail) {
         list_move(1);
       }
       break;
-    case 4:
-      if (is_carousel(s_screen)) {
-        if (s_screen == Screen::kStatus) {
-          goto_screen(Screen::kList);
-        } else {
-          open_detail();
-        }
+    case 4: // CLICK
+      if (s_screen == Screen::kHome) {
+        open_home_app(s_home_sel);
+      } else if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+                 s_screen == Screen::kBleList || s_screen == Screen::kWifiList) {
+        open_detail();
       } else if (s_screen == Screen::kDetail) {
         goto_screen(s_detail_return);
       }
@@ -1287,7 +1619,13 @@ void handle_key(char key) {
     show_help();
     return;
   }
-  if (key == 's' || key == 'S' || key == 27) {
+  // q / ESC → home
+  if (key == 'q' || key == 'Q' || key == 27) {
+    goto_screen(Screen::kHome);
+    return;
+  }
+  // Direct app shortcuts (work from any screen)
+  if (key == 's' || key == 'S') {
     goto_screen(Screen::kStatus);
     return;
   }
@@ -1299,17 +1637,46 @@ void handle_key(char key) {
     goto_screen(Screen::kNearby);
     return;
   }
-  if (key == 'd' || key == 'D' || key == '\n' || key == '\r') {
-    if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
-        s_screen == Screen::kDetail) {
-      open_detail();
-    } else {
-      goto_screen(Screen::kList);
+  if (key == 'w' || key == 'W') {
+    goto_screen(Screen::kWifiList);
+    return;
+  }
+  if (key == 'b' || key == 'B') {
+    goto_screen(Screen::kBleList);
+    return;
+  }
+  if (key == 'x' || key == 'X') {
+    goto_screen(Screen::kSettings);
+    return;
+  }
+  // Home screen navigation
+  if (s_screen == Screen::kHome) {
+    if (key == '\n' || key == '\r') {
+      open_home_app(s_home_sel);
+    } else if (key == 'j' || key == 'J') {
+      if (s_home_sel <= 3) { s_home_sel += 2; s_dirty = true; }
+    } else if (key == 'k' || key == 'K') {
+      if (s_home_sel >= 2) { s_home_sel -= 2; s_dirty = true; }
+    } else if (key == ' ') {
+      if (s_home_sel < 5) { s_home_sel++; s_dirty = true; }
     }
     return;
   }
-  if (key == ' ' || key == 'o' || key == 'O') {
-    cycle_screen();
+  // Settings screen adjustments
+  if (s_screen == Screen::kSettings) {
+    if (key == 'j' || key == 'J') {
+      if (s_brightness < 16) { s_brightness++; tdeck_set_brightness(s_brightness); s_settings_painted = false; s_dirty = true; }
+    } else if (key == 'k' || key == 'K') {
+      if (s_brightness > 1) { s_brightness--; tdeck_set_brightness(s_brightness); s_settings_painted = false; s_dirty = true; }
+    }
+    return;
+  }
+  if (key == 'd' || key == 'D' || key == '\n' || key == '\r') {
+    if (s_screen == Screen::kList || s_screen == Screen::kNearby ||
+        s_screen == Screen::kBleList || s_screen == Screen::kWifiList ||
+        s_screen == Screen::kDetail) {
+      open_detail();
+    }
     return;
   }
   if (key == 'j' || key == 'J') {
@@ -1342,10 +1709,13 @@ void handle_key(char key) {
         (s_screen == Screen::kDetail &&
          s_detail_source == DetailSource::kNearby)) {
       const size_t n = rf_sightings_count();
-      if (n > 0) {
-        s_nearby_sel = n - 1;
-        s_dirty = true;
-      }
+      if (n > 0) { s_nearby_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kBleList) {
+      const size_t n = rf_count_kind("ble");
+      if (n > 0) { s_ble_sel = n - 1; s_dirty = true; }
+    } else if (s_screen == Screen::kWifiList) {
+      const size_t n = rf_count_kind("wifi");
+      if (n > 0) { s_wifi_sel = n - 1; s_dirty = true; }
     } else if (s_hit_count > 0) {
       s_list_sel = s_hit_count - 1;
       s_dirty = true;
@@ -1356,13 +1726,13 @@ void handle_key(char key) {
     if (s_screen == Screen::kNearby ||
         (s_screen == Screen::kDetail &&
          s_detail_source == DetailSource::kNearby)) {
-      if (rf_sightings_count() > 0) {
-        s_nearby_sel = 0;
-        s_dirty = true;
-      }
+      if (rf_sightings_count() > 0) { s_nearby_sel = 0; s_dirty = true; }
+    } else if (s_screen == Screen::kBleList) {
+      s_ble_sel = 0; s_dirty = true;
+    } else if (s_screen == Screen::kWifiList) {
+      s_wifi_sel = 0; s_dirty = true;
     } else if (s_hit_count > 0) {
-      s_list_sel = 0;
-      s_dirty = true;
+      s_list_sel = 0; s_dirty = true;
     }
     return;
   }
@@ -1595,6 +1965,26 @@ void tdeck_ui_loop() {
   if (s_screen == Screen::kNearby &&
       rf_sightings_count() != s_paint_nearby_count) {
     s_dirty = true;
+  }
+
+  if (s_screen == Screen::kBleList && rf_sightings_count() != s_paint_ble_count) {
+    s_dirty = true;
+  }
+
+  if (s_screen == Screen::kWifiList && rf_sightings_count() != s_paint_wifi_count) {
+    s_dirty = true;
+  }
+
+  if (s_screen == Screen::kHome) {
+    static uint32_t s_home_ev_last = UINT32_MAX;
+    static uint32_t s_home_hit_last = UINT32_MAX;
+    const uint32_t ev = rf_sightings_events();
+    if (ev != s_home_ev_last || s_hit_total != s_home_hit_last) {
+      s_home_ev_last = ev;
+      s_home_hit_last = s_hit_total;
+      s_paint_home_sel = SIZE_MAX;
+      s_dirty = true;
+    }
   }
 
   if (s_hit_alert_until != 0 && millis() >= s_hit_alert_until) {
