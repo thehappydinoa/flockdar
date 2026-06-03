@@ -1610,7 +1610,7 @@ void handle_key(char key) {
     return;
   }
   if (s_screen == Screen::kHelp) {
-    if (key == 27 || key == 'h' || key == 'H' || key == 's' || key == 'S') {
+    if (key == 27 || key == 'h' || key == 'H' || key == 'q' || key == 'Q') {
       leave_help();
     }
     return;
