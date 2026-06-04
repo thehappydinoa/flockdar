@@ -1,0 +1,202 @@
+version: '3'
+
+vars:
+  BIN: bin
+  TARGET: '{{.TARGET | default "pi-pelican.local"}}'
+  PORT: '{{.PORT | default "/dev/ttyUSB0"}}'
+
+tasks:
+  # ── codegen ────────────────────────────────────────────────────────────────
+
+  gen:oui:
+    desc: "Generate OUI header (ESP32) and Go signatures from signatures.toml"
+    sources:
+      - signatures.toml
+    generates:
+      - esp32/src/oui_list.h
+      - internal/detect/signatures_gen.go
+    cmds:
+      - go run ./cmd/gen-oui signatures.toml esp32/src/oui_list.h internal/detect/signatures_gen.go
+
+  gen:pins:
+    desc: "Validate pinspec and regenerate esp32/src/pins.h"
+    sources:
+      - pinspec.toml
+    generates:
+      - esp32/src/pins.h
+    cmds:
+      - go run ./cmd/gen-pins gen pinspec.toml esp32/src/pins.h
+
+  gen:
+    desc: "Run all code generators"
+    deps: [gen:oui, gen:pins]
+
+  # ── build ──────────────────────────────────────────────────────────────────
+
+  build:
+    desc: "Build all Go binaries (host platform)"
+    deps: [gen]
+    cmds:
+      - mkdir -p {{.BIN}}
+      - go build -o {{.BIN}}/flockdard ./cmd/flockdard
+      - go build -o {{.BIN}}/flockdar  ./cmd/flockdar
+
+  build:arm64:
+    desc: "Cross-compile for Raspberry Pi (linux/arm64)"
+    deps: [gen]
+    env:
+      GOOS: linux
+      GOARCH: arm64
+      CGO_ENABLED: "1"
+      CC: aarch64-linux-gnu-gcc
+    cmds:
+      - mkdir -p {{.BIN}}
+      - go build -o {{.BIN}}/flockdard-arm64 ./cmd/flockdard
+      - go build -o {{.BIN}}/flockdar-arm64  ./cmd/flockdar
+
+  build:all:
+    desc: "Build for all targets"
+    deps: [build, build:arm64]
+
+  # ── test ───────────────────────────────────────────────────────────────────
+
+  test:
+    desc: "Run Go tests"
+    cmds:
+      - go test ./...
+
+  test:race:
+    desc: "Run Go tests with race detector"
+    cmds:
+      - go test -race ./...
+
+  test:cover:
+    desc: "Run tests with coverage report"
+    cmds:
+      - go test -coverprofile=coverage.out ./...
+      - go tool cover -html=coverage.out -o coverage.html
+      - echo "Coverage report: coverage.html"
+
+  # ── lint ───────────────────────────────────────────────────────────────────
+
+  lint:
+    desc: "Run go vet and staticcheck"
+    cmds:
+      - go vet ./...
+      - staticcheck ./...
+
+  fmt:
+    desc: "Format all Go code"
+    cmds:
+      - gofmt -w .
+
+  # ── firmware ───────────────────────────────────────────────────────────────
+
+  firmware:build:
+    desc: "Build T-Deck firmware"
+    deps: [gen]
+    dir: esp32
+    cmds:
+      - pio run -e t-deck
+
+  firmware:flash:
+    desc: "Build and flash T-Deck firmware"
+    deps: [gen]
+    dir: esp32
+    cmds:
+      - pio run -e t-deck -t upload
+
+  firmware:build:s3:
+    desc: "Build generic ESP32-S3 firmware"
+    deps: [gen]
+    dir: esp32
+    cmds:
+      - pio run -e esp32-s3
+
+  firmware:flash:s3:
+    desc: "Build and flash generic ESP32-S3 firmware"
+    deps: [gen]
+    dir: esp32
+    cmds:
+      - pio run -e esp32-s3 -t upload
+
+  firmware:monitor:
+    desc: "Open serial monitor for connected ESP32"
+    dir: esp32
+    cmds:
+      - pio device monitor --baud 115200
+
+  # ── dev ────────────────────────────────────────────────────────────────────
+
+  dev:
+    desc: "Run daemon in dev mode (--dev flag, serial on PORT)"
+    deps: [gen]
+    cmds:
+      - go run ./cmd/flockdard --dev --module serial:{{.PORT}}
+
+  dev:coconut:
+    desc: "Run daemon with WiFi Coconut + BLE modules"
+    deps: [gen]
+    cmds:
+      - go run ./cmd/flockdard --dev --module coconut --module ble --module meshtastic:/dev/ttyUSB0
+
+  # ── deploy ─────────────────────────────────────────────────────────────────
+
+  install:
+    desc: "Cross-compile and deploy to Pi (TARGET=hostname)"
+    deps: [build:arm64]
+    cmds:
+      - scp {{.BIN}}/flockdard-arm64 {{.TARGET}}:/usr/local/bin/flockdard
+      - ssh {{.TARGET}} systemctl restart flockdard
+      - echo "Deployed to {{.TARGET}}"
+
+  install:service:
+    desc: "Install systemd service on Pi (TARGET=hostname)"
+    cmds:
+      - scp deploy/flockdard.service {{.TARGET}}:/etc/systemd/system/flockdard.service
+      - ssh {{.TARGET}} "systemctl daemon-reload && systemctl enable flockdard"
+
+  logs:
+    desc: "Tail daemon logs on Pi (TARGET=hostname)"
+    cmds:
+      - ssh {{.TARGET}} journalctl -fu flockdard
+
+  # ── sigs ───────────────────────────────────────────────────────────────────
+
+  sigs:check:
+    desc: "Verify generated files match signatures.toml (CI check)"
+    cmds:
+      - task: gen
+      - git diff --exit-code esp32/src/oui_list.h internal/detect/signatures_gen.go
+
+  sigs:diff:
+    desc: "Show what would change if signatures.toml were regenerated"
+    cmds:
+      - task: gen
+      - git diff esp32/src/oui_list.h internal/detect/signatures_gen.go
+
+  # ── ci ─────────────────────────────────────────────────────────────────────
+
+  ci:
+    desc: "Full CI pipeline: gen → build → test → lint → firmware"
+    cmds:
+      - task: sigs:check
+      - task: build
+      - task: test:race
+      - task: lint
+      - task: firmware:build
+
+  # ── util ───────────────────────────────────────────────────────────────────
+
+  clean:
+    desc: "Remove build artifacts"
+    cmds:
+      - rm -rf {{.BIN}} coverage.out coverage.html
+      - rm -rf esp32/.pio
+
+  tools:
+    desc: "Install required Go tools"
+    cmds:
+      - go install honnef.co/go/tools/cmd/staticcheck@latest
+      - go install github.com/go-task/task/v3/cmd/task@latest
+      - echo "Also install: PlatformIO (pip install platformio)"
