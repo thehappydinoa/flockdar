@@ -21,7 +21,11 @@ The H2T Meshtastic node in the Pelican case (ADR-0007) serves as the LoRa gatewa
 
 ## Protocol: Meshtastic PRIVATE_APP channel
 
-The T-Deck firmware encodes flockdar payloads as Meshtastic data packets using the `PRIVATE_APP` portnum (256). This allows the H2T to relay packets without understanding their content, and the `meshtastic-go` library on the Pi receives them via the existing serial connection.
+The H2T runs **stock Meshtastic firmware** and requires no modification. It relays arbitrary application data on named channels as a standard Meshtastic feature.
+
+The T-Deck firmware (flockdar C++) encodes hit payloads as Meshtastic `MeshPacket` protobuf messages using portnum `PRIVATE_APP` (256) on the `flockdar` channel. The H2T receives these over LoRa and delivers them to the daemon via USB serial — treating the payload as opaque bytes, exactly as it does for any Meshtastic application. The `meshtastic-go` library on the Pi unwraps the Meshtastic envelope and hands the raw bytes to the daemon for decoding.
+
+**The only custom code is in the T-Deck firmware** (encoding) **and the Pi daemon** (decoding). The H2T is a transparent relay running unmodified stock firmware.
 
 **Channel configuration:**
 - Channel name: `flockdar`
@@ -116,13 +120,18 @@ ADR-0004's "trusted SSID" WiFi sync pattern **does not apply to the T-Deck**. It
 1. Real-time (best-effort): hits transmitted over LoRa as detected
 2. Bulk: SD card physical retrieval or future LoRa bulk transfer
 
-## Firmware changes required
+## Firmware and configuration changes required
 
-- T-Deck: implement Meshtastic packet framing (protobuf encode of `MeshPacket` with `PRIVATE_APP` portnum and channel key)
-- T-Deck: binary hit/GPS/heartbeat structs defined in `protocol.h`
-- T-Deck: inbound packet handler — decode `FlockdarDisplayUpdate`, update display
-- T-Deck: LoRa queue (ring buffer, 16 entries) for burst handling
-- H2T: configure `flockdar` channel with shared key (via Meshtastic app, one-time setup)
+**T-Deck firmware (C++) — custom code:**
+- Implement Meshtastic `MeshPacket` protobuf encoding (`PRIVATE_APP` portnum, `flockdar` channel key)
+- Binary hit/GPS/heartbeat structs in `protocol.h`
+- Inbound packet handler — decode `FlockdarDisplayUpdate`, update display
+- LoRa ring buffer (16 entries) for burst handling
+
+**H2T — configuration only, no firmware changes:**
+- Open Meshtastic app → connect to H2T → add `flockdar` channel with pre-shared key
+- One-time setup, never touched again
+- Stock Meshtastic firmware remains unchanged throughout the life of the project
 
 ## Consequences
 

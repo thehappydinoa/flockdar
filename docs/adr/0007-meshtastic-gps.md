@@ -9,12 +9,14 @@ The stationary hub (Platform A) needs a GPS source and a way to receive hit aler
 
 ## Decision
 
-Use a **dedicated Meshtastic node** (Muzi Works H2T / Heltec T114 V2) as:
+Use the **Muzi Works H2T (Heltec T114 V2) running stock Meshtastic firmware** as:
 
-1. Primary GPS source for the hub via the `meshtastic` Go library over USB serial
-2. LoRa mesh gateway — receives hit packets from T-Decks in the field and delivers them to the daemon
+1. Primary GPS source for the hub via the `meshtastic-go` library over USB serial
+2. LoRa mesh gateway — receives data packets from T-Decks in the field and delivers them to the daemon
 
 The H2T connects to the Pi via USB-C. No separate GPS dongle required.
+
+**The H2T runs unmodified stock Meshtastic firmware throughout. No custom firmware, no firmware modifications of any kind.** All configuration (channel name, channel key, node name) is done once via the Meshtastic phone app. The H2T can simultaneously participate in the broader Meshtastic mesh as a normal node.
 
 ## Device: Muzi Works H2T
 
@@ -42,26 +44,11 @@ Fallback priority if H2T is unavailable:
 
 ## Meshtastic as mesh relay
 
-T-Decks in the field that are out of WiFi range can broadcast condensed hit alerts over LoRa on a dedicated flockdar Meshtastic channel. The H2T receives these and the daemon ingests them as low-detail hit records:
+T-Decks in the field send condensed hit records as standard Meshtastic data packets on the `flockdar` channel (`PRIVATE_APP` portnum 256). The H2T receives and relays these over the mesh without needing to understand their content — this is standard Meshtastic behaviour for application data.
 
-```json
-{
-  "v": 1,
-  "type": "wifi",
-  "node_id": "t-deck-van",
-  "run_id": "01J4X9K2...",
-  "mac": "aa:bb:cc:dd:ee:ff",
-  "rssi": -72,
-  "lat": 40.001,
-  "lon": -74.002,
-  "via": "lora_mesh",
-  "sig": "a1b2c3d4"
-}
-```
+The `meshtastic-go` library on the Pi receives the data packets via USB serial and the daemon decodes the binary payload into hit records marked `via:lora_mesh`.
 
-The `via: lora_mesh` field marks these as mesh-relayed. When the T-Deck later syncs over WiFi, the full SD log fills in any missing detail. The daemon merges by `(mac, run_id)`.
-
-**LoRa payload size constraint:** LoRa packets are limited to ~250 bytes. The condensed mesh hit record (MAC + RSSI + GPS + run_id + node_id + HMAC truncated to 4 bytes) fits within this budget. Full detection detail (capabilities, BLE services, etc.) is deferred to the WiFi sync.
+**The H2T requires no knowledge of the flockdar protocol.** It treats flockdar packets as opaque application data, exactly as stock Meshtastic handles any third-party app using `PRIVATE_APP`.
 
 ## Why not T-Beam instead
 
@@ -72,11 +59,22 @@ The LILYGO T-Beam is a common Meshtastic recommendation. The H2T (Heltec T114 V2
 - Smaller form factor fits better inside the Pelican case
 - The user already owns the H2T
 
+## H2T setup (one-time, via Meshtastic phone app)
+
+1. Connect phone to H2T over BLE
+2. Set node name: `flockdar-hub`
+3. Add channel: name=`flockdar`, key=`<32-byte hex>`, role=PRIMARY or SECONDARY
+4. Done — no further H2T interaction required
+
+The same channel name and key must be configured on the T-Deck's LoRa radio (in flockdar firmware config, not Meshtastic app).
+
 ## Consequences
 
-- Daemon gains `meshtastic` module (goroutine connecting to H2T via serial)
-- Daemon position manager has fallback chain: H2T → USB GNSS → none
+- Daemon gains `meshtastic` module (goroutine connecting to H2T via USB serial using `meshtastic-go`)
+- Daemon position manager has fallback chain: H2T position packets → USB GNSS → none
 - `via` field added to protocol schema (additive, non-breaking)
-- T-Deck firmware: future enhancement to broadcast condensed hits over LoRa (Phase 4)
-- Meshtastic channel name: `flockdar` (configured on all nodes via Meshtastic app)
+- **H2T firmware: never modified** — stock Meshtastic only
+- T-Deck firmware: implements Meshtastic `PRIVATE_APP` packet encoding to send hits the H2T can relay (see ADR-0008)
+- Meshtastic channel `flockdar` configured on H2T via phone app; key stored in T-Deck firmware config
 - H2T antenna: SMA pigtail routed to panel-mount on Pelican case wall
+- H2T continues to function as a normal Meshtastic node — other mesh users are unaffected
