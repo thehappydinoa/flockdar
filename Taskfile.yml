@@ -178,13 +178,81 @@ tasks:
   # ── ci ─────────────────────────────────────────────────────────────────────
 
   ci:
-    desc: "Full CI pipeline: gen → build → test → lint → firmware"
+    desc: "Full CI pipeline: gen → build → web → test → lint → firmware"
     cmds:
       - task: sigs:check
+      - task: web:build
       - task: build
       - task: test:race
       - task: lint
       - task: firmware:build
+
+  # ── oui db ─────────────────────────────────────────────────────────────────
+
+  oui:update:
+    desc: "Fetch latest IEEE OUI databases and rebuild SQLite oui_db table"
+    cmds:
+      - go run ./cmd/oui-update
+
+  oui:stats:
+    desc: "Show OUI database entry counts"
+    cmds:
+      - go run ./cmd/oui-update --stats
+
+  # ── coconut ────────────────────────────────────────────────────────────────
+
+  coconut:install:
+    desc: "Build and install hak5-wifi-coconut userspace driver"
+    cmds:
+      - git clone https://github.com/hak5/hak5-wifi-coconut /tmp/coconut
+      - cmake -S /tmp/coconut -B /tmp/coconut/build
+      - cmake --build /tmp/coconut/build
+      - sudo cmake --install /tmp/coconut/build
+      - rm -rf /tmp/coconut
+
+  coconut:test:
+    desc: "Verify Coconut is detected and producing packets"
+    cmds:
+      - wifi_coconut --list-devices
+      - timeout 5 wifi_coconut - | tcpdump -r - -c 5 2>/dev/null || true
+
+  # ── bluetooth tether ───────────────────────────────────────────────────────
+
+  bt:pair:
+    desc: "Pair Android phone for BT tethering (MAC=aa:bb:cc:dd:ee:ff)"
+    cmds:
+      - bluetoothctl pair {{.MAC}}
+      - bluetoothctl trust {{.MAC}}
+    requires:
+      vars: [MAC]
+
+  bt:connect:
+    desc: "Connect BT PAN tether (MAC=aa:bb:cc:dd:ee:ff)"
+    cmds:
+      - bt-network -c {{.MAC}} nap
+      - sudo dhclient bnep0
+    requires:
+      vars: [MAC]
+
+  # ── web ────────────────────────────────────────────────────────────────────
+
+  web:install:
+    desc: "Install web UI npm dependencies"
+    dir: web
+    cmds:
+      - npm install
+
+  web:dev:
+    desc: "Start Vite dev server (proxied to running daemon on :8080)"
+    dir: web
+    cmds:
+      - npm run dev
+
+  web:build:
+    desc: "Build web UI into web/dist/ for embedding in Go binary"
+    dir: web
+    cmds:
+      - npm run build
 
   # ── util ───────────────────────────────────────────────────────────────────
 
