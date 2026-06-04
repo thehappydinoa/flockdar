@@ -1,6 +1,6 @@
 # ADR-0004: Offline-first sync — opportunistic loot model
 
-**Status:** Accepted  
+**Status:** Accepted (amended by ADR-0008)  
 **Date:** 2026-06-04
 
 ## Context
@@ -19,6 +19,8 @@ Every node stores detections locally first. Sync to a hub is **opportunistic** a
 | Pi Zero 2W | SQLite (`~/.local/share/flockdar/loot.db`) | Always-on if hub reachable; periodic batch otherwise |
 | Pi 4 hub | SQLite (primary store) | Accepts inbound sync; optionally syncs to remote C2 |
 | Android (future) | SQLite on device | WiFi reconnect to trusted network |
+
+> **Amendment (ADR-0008):** The WiFi sync pattern below **does not apply to the T-Deck**. The T-Deck communicates exclusively via LoRa (using its SX1276 radio and the H2T as gateway), keeping its WiFi radio in monitor mode at all times. The pattern below applies to Platform B (Pi Zero 2W) which has two WiFi radios and can sync on one while scanning on the other.
 
 ### T-Deck sync flow (Pwnagotchi pattern)
 

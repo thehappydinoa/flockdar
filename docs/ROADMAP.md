@@ -52,21 +52,31 @@ Phases are sequential dependencies. Each phase ships something useful on its own
 
 ---
 
-## Phase 4 — ESP32 WebSocket sync + display personality
-*Unlocks: T-Deck syncs wirelessly, Pwnagotchi-style experience*
+## Phase 4 — LoRa comms + T-Deck display personality
+*Unlocks: T-Deck communicates via LoRa (no WiFi scanning gaps ever), Pwnagotchi-style display*
 
-- [ ] ESP32 firmware: trusted network list from SD card (`trusted_nets.json`)
-- [ ] ESP32 firmware: opportunistic sync — pause scan, connect, POST gzip loot, pull signatures, disconnect, resume
-- [ ] ESP32 firmware: `gap` record emission around sync windows
-- [ ] ESP32 firmware: signature OTA — pull from `GET /api/v1/signatures/latest`, reload from SD without reflash
-- [ ] Daemon: `POST /api/v1/sync` endpoint — gzip NDJSON ingest, idempotent, returns `last_seq`
-- [ ] Daemon: `GET /api/v1/signatures/latest` — hash + current signature blob
-- [ ] T-Deck display personality: mood states (happy, bored, excited, sleepy)
-- [ ] T-Deck display: run stats overlay, "I remember you" reaction, run name on boot
-- [ ] T-Deck button shortcuts: `S`, `R`, `C`
-- [ ] Node dashboard in web UI: per-node status, last sync time, hit count
+T-Deck WiFi radio stays in monitor mode 100% of session time. All comms go over LoRa through the H2T Meshtastic node.
 
-**Done when:** T-Deck in field auto-syncs when home WiFi is in range, display shows mood + run stats, daemon web UI shows node as online with last-sync timestamp.
+- [ ] T-Deck firmware: Meshtastic `PRIVATE_APP` packet framing (protobuf encode, `flockdar` channel key)
+- [ ] T-Deck firmware: binary hit struct (28 bytes) transmitted over LoRa on each detection
+- [ ] T-Deck firmware: GPS update packet (14 bytes, every 30s)
+- [ ] T-Deck firmware: heartbeat packet (8 bytes, every 60s) — hits, battery, GPS fix
+- [ ] T-Deck firmware: LoRa ring buffer (16 entries) for burst handling
+- [ ] T-Deck firmware: inbound display update handler — decode `FlockdarDisplayUpdate`, render
+- [ ] T-Deck display personality: mood states driven by Pi's aggregated view (happy, bored, excited, sleepy)
+- [ ] T-Deck display: fleet stats overlay (total hits across all nodes, new vs seen-before, nodes online)
+- [ ] T-Deck display: "I remember you" reaction on repeat MAC
+- [ ] T-Deck display: run name on boot, battery indicator
+- [ ] T-Deck button shortcuts: `S` stats, `R` new run, `C` force heartbeat
+- [ ] H2T: configure `flockdar` Meshtastic channel (one-time, via Meshtastic app)
+- [ ] Daemon: Meshtastic module receives `PRIVATE_APP` packets, decodes binary structs, injects as hits
+- [ ] Daemon: sends `FlockdarDisplayUpdate` packets to T-Deck via H2T after each hit or on 10s tick
+- [ ] Daemon: `POST /api/v1/sync` endpoint — for SD card bulk import (card swap workflow)
+- [ ] Node dashboard in web UI: per-node status, last LoRa packet time, hit count, battery
+
+**Done when:** T-Deck scanning in field → LoRa hit arrives at Pi daemon in <2s → Pi sends display update back → T-Deck shows fleet-wide hit count and mood. WiFi radio never left monitor mode.
+
+**Note:** WiFi opportunistic sync (ADR-0004 Pwnagotchi pattern) applies to Platform B (Pi Zero 2W) only — implemented separately in Phase 2.
 
 ---
 
