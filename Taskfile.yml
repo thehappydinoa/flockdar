@@ -161,7 +161,35 @@ tasks:
     cmds:
       - ssh {{.TARGET}} journalctl -fu flockdard
 
+  # ── auth ───────────────────────────────────────────────────────────────────
+
+  auth:qr:
+    desc: "Print web UI access QR code to terminal (TARGET=hostname)"
+    cmds:
+      - ssh {{.TARGET}} "/usr/local/bin/flockdard auth-qr --config /etc/flockdard/config.toml"
+
+  # ── db ─────────────────────────────────────────────────────────────────────
+
+  db:backup:
+    desc: "Backup SQLite database from Pi to ./backups/ (TARGET=hostname)"
+    cmds:
+      - mkdir -p backups
+      - ssh {{.TARGET}} "sqlite3 /var/lib/flockdard/detections.db '.backup /tmp/flockdard-backup.db'"
+      - scp {{.TARGET}}:/tmp/flockdard-backup.db "backups/detections-$(date +%Y%m%d-%H%M%S).db"
+      - ssh {{.TARGET}} rm /tmp/flockdard-backup.db
+
+  db:shell:
+    desc: "Open SQLite shell on Pi (TARGET=hostname)"
+    cmds:
+      - ssh {{.TARGET}} "sqlite3 /var/lib/flockdard/detections.db"
+
   # ── sigs ───────────────────────────────────────────────────────────────────
+
+  sigs:pull:
+    desc: "Pull latest signatures from feed URL and regenerate headers"
+    cmds:
+      - go run ./cmd/sigs-pull
+      - task: gen:oui
 
   sigs:check:
     desc: "Verify generated files match signatures.toml (CI check)"
@@ -170,10 +198,52 @@ tasks:
       - git diff --exit-code esp32/src/oui_list.h internal/detect/signatures_gen.go
 
   sigs:diff:
-    desc: "Show what would change if signatures.toml were regenerated"
+    desc: "Show what would change after regenerating from signatures.toml"
     cmds:
       - task: gen
       - git diff esp32/src/oui_list.h internal/detect/signatures_gen.go
+
+  # ── cert ───────────────────────────────────────────────────────────────────
+
+  cert:renew:
+    desc: "Renew self-signed TLS certificate on Pi (TARGET=hostname)"
+    cmds:
+      - ssh {{.TARGET}} "/usr/local/bin/flockdard renew-cert"
+      - ssh {{.TARGET}} "systemctl restart flockdard"
+
+  # ── config ─────────────────────────────────────────────────────────────────
+
+  config:validate:
+    desc: "Validate config file without starting daemon"
+    cmds:
+      - go run ./cmd/flockdard --config "{{.CONFIG | default \"/etc/flockdard/config.toml\"}}" --validate-only
+
+  config:show:
+    desc: "Print resolved config with secrets redacted (TARGET=hostname)"
+    cmds:
+      - ssh {{.TARGET}} "/usr/local/bin/flockdard --config /etc/flockdard/config.toml --show-config"
+
+  # ── tiles ──────────────────────────────────────────────────────────────────
+
+  tiles:download:
+    desc: "Download PMTiles extract for a region (REGION=us|new-york|etc)"
+    cmds:
+      - go run ./cmd/tiles-download --region {{.REGION}} --output "{{.TILES_PATH | default \"/var/lib/flockdard/tiles.pmtiles\"}}"
+
+  tiles:info:
+    desc: "Show info about the current PMTiles file"
+    cmds:
+      - go run ./cmd/tiles-download --info "{{.TILES_PATH | default \"/var/lib/flockdard/tiles.pmtiles\"}}"
+
+  # ── firmware remote ────────────────────────────────────────────────────────
+
+  firmware:flash:remote:
+    desc: "Build and flash firmware via Pi serial passthrough (TARGET, PORT)"
+    cmds:
+      - task: firmware:build
+      - scp esp32/.pio/build/t-deck/firmware.bin {{.TARGET}}:/tmp/fw.bin
+      - ssh {{.TARGET}} "esptool.py --port {{.PORT | default \"/dev/ttyUSB1\"}} write_flash 0x0 /tmp/fw.bin"
+      - ssh {{.TARGET}} rm /tmp/fw.bin
 
   # ── ci ─────────────────────────────────────────────────────────────────────
 
