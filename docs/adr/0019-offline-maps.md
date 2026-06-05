@@ -84,14 +84,14 @@ task tiles:download REGION=planet
 tiles:download:
   desc: "Download PMTiles extract for a region (REGION=us|new-york|etc)"
   vars:
-    TILES_PATH: '{{.TILES_PATH | default "/var/lib/flockdard/tiles.pmtiles"}}'
+    TILES_PATH: '{{.TILES_PATH | default "/var/lib/muninn/tiles.pmtiles"}}'
   cmds:
     - go run ./cmd/tiles-download --region {{.REGION}} --output {{.TILES_PATH}}
 
 tiles:info:
   desc: "Show info about the current tiles file"
   cmds:
-    - go run ./cmd/tiles-download --info {{.TILES_PATH | default "/var/lib/flockdard/tiles.pmtiles"}}
+    - go run ./cmd/tiles-download --info {{.TILES_PATH | default "/var/lib/muninn/tiles.pmtiles"}}
 ```
 
 `cmd/tiles-download` fetches from Protomaps' public builds at `https://build.protomaps.com/`. Regional extracts are derived from OpenStreetMap data.
@@ -112,7 +112,7 @@ For the Pelican Hub with a 128GB microSD, a full US extract is practical.
 
 ```toml
 [tiles]
-path = "/var/lib/flockdard/tiles.pmtiles"  # omit to disable offline tiles
+path = "/var/lib/muninn/tiles.pmtiles"  # omit to disable offline tiles
 max_zoom = 16   # cap zoom to reduce tile requests at full zoom
 ```
 

@@ -78,7 +78,7 @@ tasks:
   build:
     desc: "Build all Go binaries"
     cmds:
-      - go build -o bin/flockdard ./cmd/flockdard
+      - go build -o bin/muninnd ./cmd/muninnd
       - go build -o bin/flockdar  ./cmd/flockdar
 
   build:arm64:
@@ -87,7 +87,7 @@ tasks:
       GOOS: linux
       GOARCH: arm64
     cmds:
-      - go build -o bin/flockdard-arm64 ./cmd/flockdard
+      - go build -o bin/muninnd-arm64 ./cmd/muninnd
       - go build -o bin/flockdar-arm64  ./cmd/flockdar
 
   # --- test ---
@@ -136,14 +136,14 @@ tasks:
   dev:
     desc: "Run daemon in dev mode (serial + web UI on :8080)"
     cmds:
-      - go run ./cmd/flockdard --dev --module serial:{{.PORT | default "/dev/ttyUSB0"}}
+      - go run ./cmd/muninnd --dev --module serial:{{.PORT | default "/dev/ttyUSB0"}}
 
   install:
-    desc: "Install flockdard as systemd service"
+    desc: "Install muninnd as systemd service"
     cmds:
       - task: build:arm64
-      - scp bin/flockdard-arm64 {{.TARGET}}:/usr/local/bin/flockdard
-      - ssh {{.TARGET}} systemctl restart flockdard
+      - scp bin/muninnd-arm64 {{.TARGET}}:/usr/local/bin/muninnd
+      - ssh {{.TARGET}} systemctl restart muninnd
     vars:
       TARGET: '{{.TARGET | default "pi-pelican.local"}}'
 

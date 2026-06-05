@@ -62,15 +62,15 @@ flockdar mesh-info --port /dev/ttyUSB0
 # Should show node info and GPS fix status
 ```
 
-## 5. Install flockdard
+## 5. Install muninnd
 
 ```bash
 # From your dev machine
 task install TARGET=pi-pelican.local
 
 # Or manually:
-scp bin/flockdard-arm64 pi@pi-pelican.local:/usr/local/bin/flockdard
-ssh pi@pi-pelican.local chmod +x /usr/local/bin/flockdard
+scp bin/muninnd-arm64 pi@pi-pelican.local:/usr/local/bin/muninnd
+ssh pi@pi-pelican.local chmod +x /usr/local/bin/muninnd
 ```
 
 ## 6. Configure
@@ -78,8 +78,8 @@ ssh pi@pi-pelican.local chmod +x /usr/local/bin/flockdard
 ```bash
 ssh pi@pi-pelican.local
 
-sudo mkdir -p /etc/flockdard
-sudo tee /etc/flockdard/config.toml << 'EOF'
+sudo mkdir -p /etc/muninn
+sudo tee /etc/muninn/config.toml << 'EOF'
 [node]
 id   = "pi-pelican"
 name = "Pelican Hub"
@@ -106,10 +106,10 @@ listen = "0.0.0.0:8080"
 tls    = false
 
 [store]
-path = "/var/lib/flockdard/detections.db"
+path = "/var/lib/muninn/detections.db"
 EOF
 
-sudo mkdir -p /var/lib/flockdard
+sudo mkdir -p /var/lib/muninn
 ```
 
 ## 7. Systemd service
@@ -119,13 +119,13 @@ sudo mkdir -p /var/lib/flockdard
 task install:service TARGET=pi-pelican.local
 
 # Or manually:
-sudo tee /etc/systemd/system/flockdard.service << 'EOF'
+sudo tee /etc/systemd/system/muninnd.service << 'EOF'
 [Unit]
-Description=flockdard detection daemon
+Description=muninnd detection daemon
 After=network.target bluetooth.target
 
 [Service]
-ExecStart=/usr/local/bin/flockdard --config /etc/flockdard/config.toml
+ExecStart=/usr/local/bin/muninnd --config /etc/muninn/config.toml
 Restart=on-failure
 RestartSec=5
 User=root
@@ -136,14 +136,14 @@ WantedBy=multi-user.target
 EOF
 
 sudo systemctl daemon-reload
-sudo systemctl enable --now flockdard
+sudo systemctl enable --now muninnd
 ```
 
 ## 8. Verify
 
 ```bash
 # Service running
-systemctl status flockdard
+systemctl status muninnd
 
 # Web UI accessible
 curl -s http://localhost:8080/api/v1/stats | jq .
@@ -161,7 +161,7 @@ open http://pi-pelican.local:8080
 [ ] LiPo charged (12.6V = full, 10.5V = cutoff)
 [ ] H2T has GPS fix — LED solid green, or check Meshtastic app
 [ ] Coconut: iw dev | grep Interface returns 14+ entries
-[ ] Daemon: systemctl status flockdard → active (running)
+[ ] Daemon: systemctl status muninnd → active (running)
 [ ] Web UI: http://pi-pelican.local:8080 loads from phone
 [ ] Fans running (feel airflow through grilles)
 [ ] All panel-mount connectors tight

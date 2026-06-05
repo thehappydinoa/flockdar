@@ -182,14 +182,14 @@ db:backup:
   desc: "Backup database from Pi to local ./backups/"
   cmds:
     - mkdir -p backups
-    - ssh {{.TARGET}} "sqlite3 /var/lib/flockdard/detections.db '.backup /tmp/flockdard-backup.db'"
-    - scp {{.TARGET}}:/tmp/flockdard-backup.db backups/detections-$(date +%Y%m%d-%H%M%S).db
-    - ssh {{.TARGET}} rm /tmp/flockdard-backup.db
+    - ssh {{.TARGET}} "sqlite3 /var/lib/muninn/detections.db '.backup /tmp/muninnd-backup.db'"
+    - scp {{.TARGET}}:/tmp/muninnd-backup.db backups/detections-$(date +%Y%m%d-%H%M%S).db
+    - ssh {{.TARGET}} rm /tmp/muninnd-backup.db
 
 db:shell:
   desc: "Open SQLite shell on Pi database (read-only)"
   cmds:
-    - ssh {{.TARGET}} "sqlite3 /var/lib/flockdard/detections.db"
+    - ssh {{.TARGET}} "sqlite3 /var/lib/muninn/detections.db"
 ```
 
 ## PostgreSQL upgrade path

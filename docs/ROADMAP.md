@@ -15,10 +15,10 @@ Phases are sequential dependencies. Each phase ships something useful on its own
 - [ ] REST API (`internal/api/`) — `/hits`, `/runs`, `/nodes`, `/stats`, `/sync`
 - [ ] WebSocket live feed — new hits pushed to connected browsers
 - [ ] Embedded web UI (`web/`) — hit list, node status panel, live feed. Leaflet map placeholder.
-- [ ] `flockdard` binary — systemd unit file, install script
+- [ ] `muninnd` binary — systemd unit file, install script
 - [ ] CI: `go test ./...`, `go vet`, `staticcheck`
 
-**Done when:** `flockdard --module serial:/dev/ttyUSB0` ingests from an ESP32 and the web UI on port 8080 shows hits in real time.
+**Done when:** `muninnd --module serial:/dev/ttyUSB0` ingests from an ESP32 and the web UI on port 8080 shows hits in real time.
 
 ---
 
@@ -32,7 +32,7 @@ Phases are sequential dependencies. Each phase ships something useful on its own
 - [ ] Alfa AWUS036ACH: verify works as standard monitor mode interface (no special handling needed if driver is loaded)
 - [ ] Platform B (Pi Zero 2W) build target tested
 
-**Done when:** `flockdard --module coconut --module ble` on a Pi 4 with Coconut attached detects Flock devices with no ESP32 in the loop.
+**Done when:** `muninnd --module coconut --module ble` on a Pi 4 with Coconut attached detects Flock devices with no ESP32 in the loop.
 
 ---
 

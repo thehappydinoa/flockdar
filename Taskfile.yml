@@ -38,8 +38,8 @@ tasks:
     deps: [gen]
     cmds:
       - mkdir -p {{.BIN}}
-      - go build -o {{.BIN}}/flockdard ./cmd/flockdard
-      - go build -o {{.BIN}}/flockdar  ./cmd/flockdar
+      - go build -o {{.BIN}}/muninnd ./cmd/muninnd
+      - go build -o {{.BIN}}/muninn  ./cmd/muninn
 
   build:arm64:
     desc: "Cross-compile for Raspberry Pi (linux/arm64)"
@@ -51,8 +51,8 @@ tasks:
       CC: aarch64-linux-gnu-gcc
     cmds:
       - mkdir -p {{.BIN}}
-      - go build -o {{.BIN}}/flockdard-arm64 ./cmd/flockdard
-      - go build -o {{.BIN}}/flockdar-arm64  ./cmd/flockdar
+      - go build -o {{.BIN}}/muninnd-arm64 ./cmd/muninnd
+      - go build -o {{.BIN}}/muninn-arm64  ./cmd/muninn
 
   build:all:
     desc: "Build for all targets"
@@ -132,13 +132,13 @@ tasks:
     desc: "Run daemon in dev mode (--dev flag, serial on PORT)"
     deps: [gen]
     cmds:
-      - go run ./cmd/flockdard --dev --module serial:{{.PORT}}
+      - go run ./cmd/muninnd --dev --module serial:{{.PORT}}
 
   dev:coconut:
     desc: "Run daemon with WiFi Coconut + BLE modules"
     deps: [gen]
     cmds:
-      - go run ./cmd/flockdard --dev --module coconut --module ble --module meshtastic:/dev/ttyUSB0
+      - go run ./cmd/muninnd --dev --module coconut --module ble --module meshtastic:/dev/ttyUSB0
 
   # ── deploy ─────────────────────────────────────────────────────────────────
 
@@ -146,27 +146,27 @@ tasks:
     desc: "Cross-compile and deploy to Pi (TARGET=hostname)"
     deps: [build:arm64]
     cmds:
-      - scp {{.BIN}}/flockdard-arm64 {{.TARGET}}:/usr/local/bin/flockdard
-      - ssh {{.TARGET}} systemctl restart flockdard
+      - scp {{.BIN}}/muninnd-arm64 {{.TARGET}}:/usr/local/bin/muninnd
+      - ssh {{.TARGET}} systemctl restart muninnd
       - echo "Deployed to {{.TARGET}}"
 
   install:service:
     desc: "Install systemd service on Pi (TARGET=hostname)"
     cmds:
-      - scp deploy/flockdard.service {{.TARGET}}:/etc/systemd/system/flockdard.service
-      - ssh {{.TARGET}} "systemctl daemon-reload && systemctl enable flockdard"
+      - scp deploy/muninnd.service {{.TARGET}}:/etc/systemd/system/muninnd.service
+      - ssh {{.TARGET}} "systemctl daemon-reload && systemctl enable muninnd"
 
   logs:
     desc: "Tail daemon logs on Pi (TARGET=hostname)"
     cmds:
-      - ssh {{.TARGET}} journalctl -fu flockdard
+      - ssh {{.TARGET}} journalctl -fu muninnd
 
   # ── auth ───────────────────────────────────────────────────────────────────
 
   auth:qr:
     desc: "Print web UI access QR code to terminal (TARGET=hostname)"
     cmds:
-      - ssh {{.TARGET}} "/usr/local/bin/flockdard auth-qr --config /etc/flockdard/config.toml"
+      - ssh {{.TARGET}} "/usr/local/bin/muninnd auth-qr --config /etc/muninnd/config.toml"
 
   # ── db ─────────────────────────────────────────────────────────────────────
 
@@ -174,14 +174,14 @@ tasks:
     desc: "Backup SQLite database from Pi to ./backups/ (TARGET=hostname)"
     cmds:
       - mkdir -p backups
-      - ssh {{.TARGET}} "sqlite3 /var/lib/flockdard/detections.db '.backup /tmp/flockdard-backup.db'"
-      - scp {{.TARGET}}:/tmp/flockdard-backup.db "backups/detections-$(date +%Y%m%d-%H%M%S).db"
-      - ssh {{.TARGET}} rm /tmp/flockdard-backup.db
+      - ssh {{.TARGET}} "sqlite3 /var/lib/muninnd/detections.db '.backup /tmp/muninnd-backup.db'"
+      - scp {{.TARGET}}:/tmp/muninnd-backup.db "backups/detections-$(date +%Y%m%d-%H%M%S).db"
+      - ssh {{.TARGET}} rm /tmp/muninnd-backup.db
 
   db:shell:
     desc: "Open SQLite shell on Pi (TARGET=hostname)"
     cmds:
-      - ssh {{.TARGET}} "sqlite3 /var/lib/flockdard/detections.db"
+      - ssh {{.TARGET}} "sqlite3 /var/lib/muninnd/detections.db"
 
   # ── sigs ───────────────────────────────────────────────────────────────────
 
@@ -208,32 +208,32 @@ tasks:
   cert:renew:
     desc: "Renew self-signed TLS certificate on Pi (TARGET=hostname)"
     cmds:
-      - ssh {{.TARGET}} "/usr/local/bin/flockdard renew-cert"
-      - ssh {{.TARGET}} "systemctl restart flockdard"
+      - ssh {{.TARGET}} "/usr/local/bin/muninnd renew-cert"
+      - ssh {{.TARGET}} "systemctl restart muninnd"
 
   # ── config ─────────────────────────────────────────────────────────────────
 
   config:validate:
     desc: "Validate config file without starting daemon"
     cmds:
-      - go run ./cmd/flockdard --config "{{.CONFIG | default \"/etc/flockdard/config.toml\"}}" --validate-only
+      - go run ./cmd/muninnd --config "{{.CONFIG | default \"/etc/muninnd/config.toml\"}}" --validate-only
 
   config:show:
     desc: "Print resolved config with secrets redacted (TARGET=hostname)"
     cmds:
-      - ssh {{.TARGET}} "/usr/local/bin/flockdard --config /etc/flockdard/config.toml --show-config"
+      - ssh {{.TARGET}} "/usr/local/bin/muninnd --config /etc/muninnd/config.toml --show-config"
 
   # ── tiles ──────────────────────────────────────────────────────────────────
 
   tiles:download:
     desc: "Download PMTiles extract for a region (REGION=us|new-york|etc)"
     cmds:
-      - go run ./cmd/tiles-download --region {{.REGION}} --output "{{.TILES_PATH | default \"/var/lib/flockdard/tiles.pmtiles\"}}"
+      - go run ./cmd/tiles-download --region {{.REGION}} --output "{{.TILES_PATH | default \"/var/lib/muninnd/tiles.pmtiles\"}}"
 
   tiles:info:
     desc: "Show info about the current PMTiles file"
     cmds:
-      - go run ./cmd/tiles-download --info "{{.TILES_PATH | default \"/var/lib/flockdard/tiles.pmtiles\"}}"
+      - go run ./cmd/tiles-download --info "{{.TILES_PATH | default \"/var/lib/muninnd/tiles.pmtiles\"}}"
 
   # ── firmware remote ────────────────────────────────────────────────────────
 

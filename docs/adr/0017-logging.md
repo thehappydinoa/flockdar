@@ -46,16 +46,16 @@ zerolog output under systemd:
 Journal queries:
 ```bash
 # All daemon logs
-journalctl -fu flockdard
+journalctl -fu muninnd
 
 # Errors only
-journalctl -u flockdard -p err
+journalctl -u muninnd -p err
 
 # Hits only (JSON filtering via jq)
-journalctl -u flockdard -o json | jq 'select(.msg=="hit")'
+journalctl -u muninnd -o json | jq 'select(.msg=="hit")'
 
 # Module-specific
-journalctl -u flockdard | grep '"module":"coconut"'
+journalctl -u muninnd | grep '"module":"coconut"'
 ```
 
 ## Dev mode format
@@ -77,7 +77,7 @@ level  = "info"    # trace|debug|info|warn|error
 format = "auto"    # auto|json|text (auto = json if not TTY)
 ```
 
-Environment override: `FLOCKDARD_LOG_LEVEL=debug`
+Environment override: `MUNINN_LOG_LEVEL=debug`
 
 ## Sensitive field handling
 
@@ -102,5 +102,5 @@ log.Error().Err(err).Msg("subprocess exited unexpectedly")
 - `zerolog` added as dependency
 - Dev mode detected by `isatty` check on stdout
 - No log files — systemd journal is the log sink; `journalctl` is the reader
-- `task logs TARGET=pi` added to Taskfile: `ssh pi journalctl -fu flockdard`
+- `task logs TARGET=pi` added to Taskfile: `ssh pi journalctl -fu muninnd`
 - TRACE level requires explicit opt-in — never default, too verbose for packet capture rates

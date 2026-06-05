@@ -10,7 +10,7 @@ graph TB
 
     subgraph Hub["Pelican Case (stationary)"]
         H2T[H2T\nstock Meshtastic\nLoRa + GPS]
-        PI[Raspberry Pi 4B\nflockdard daemon]
+        PI[Raspberry Pi 4B\nmuninnd daemon]
         COC[WiFi Coconut\n14× 2.4GHz]
         ALFA[Alfa AWUS036ACH\n2.4 + 5GHz]
         BLE[USB BT adapter\nBLE]
@@ -187,8 +187,8 @@ graph TD
 
     ROOT --> CMD & INT & WEB & ESP & DOCS & SIG & TASK
 
-    CMD --> DAEMOND[flockdard/\ndaemon binary]
-    CMD --> DAEMONCLI[flockdar/\nCLI binary]
+    CMD --> DAEMOND[muninnd/\ndaemon binary]
+    CMD --> DAEMONCLI[muninn/\nCLI binary]
     CMD --> GENOUI[gen-oui/\nOUI header generator]
     CMD --> GENPINS[gen-pins/\npin header generator]
 
@@ -222,9 +222,9 @@ flowchart LR
     PINTOML[pinspec.toml] -->|task gen:pins| GENPINS[cmd/gen-pins]
     GENPINS --> PINS[esp32/src/pins.h]
 
-    SGEN -->|go build| DAEMON[bin/flockdard]
+    SGEN -->|go build| DAEMON[bin/muninnd]
     OUI & PINS -->|pio run| FW[firmware.bin]
 
-    DAEMON -->|task build:arm64| ARM[bin/flockdard-arm64]
+    DAEMON -->|task build:arm64| ARM[bin/muninnd-arm64]
     ARM -->|task install TARGET=pi| PI[Pi 4B]
 ```

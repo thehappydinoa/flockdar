@@ -35,18 +35,18 @@ task install TARGET=pi-pelican.local
 The daemon can update itself from GitHub releases:
 
 ```bash
-flockdard update          # downloads latest release binary, replaces self, signals systemd
-flockdard update --check  # prints available version, does not update
+muninnd update          # downloads latest release binary, replaces self, signals systemd
+muninnd update --check  # prints available version, does not update
 ```
 
-Implementation: fetches `https://github.com/<org>/<repo>/releases/latest`, downloads the `linux-arm64` asset, verifies SHA256 checksum from the release manifest, atomically replaces `/usr/local/bin/flockdard` via temp file rename, sends `SIGHUP` to systemd to trigger a graceful restart.
+Implementation: fetches `https://github.com/<org>/<repo>/releases/latest`, downloads the `linux-arm64` asset, verifies SHA256 checksum from the release manifest, atomically replaces `/usr/local/bin/muninnd` via temp file rename, sends `SIGHUP` to systemd to trigger a graceful restart.
 
 ```yaml
 # Taskfile.yml
 update:remote:
   desc: "Self-update daemon on Pi (TARGET=hostname)"
   cmds:
-    - ssh {{.TARGET}} "/usr/local/bin/flockdard update"
+    - ssh {{.TARGET}} "/usr/local/bin/muninnd update"
 ```
 
 ---
@@ -72,8 +72,8 @@ Migration files are append-only — never edit an existing migration. Add a new 
 task db:backup TARGET=pi-pelican.local
 
 # If update goes wrong, restore
-scp backups/detections-20260604-120000.db pi-pelican.local:/var/lib/flockdard/detections.db
-ssh pi-pelican.local systemctl restart flockdard
+scp backups/detections-20260604-120000.db pi-pelican.local:/var/lib/muninn/detections.db
+ssh pi-pelican.local systemctl restart muninnd
 ```
 
 ---
@@ -140,11 +140,11 @@ Future: OTA via WiFi using ESP32 OTA partition. The T-Deck could download firmwa
 Self-signed certs are generated with a 2-year expiry. The daemon checks cert expiry at startup and logs `WARN` if expiry is within 30 days:
 
 ```
-WARN tls: certificate expires in 28 days — run 'flockdard renew-cert' to regenerate
+WARN tls: certificate expires in 28 days — run 'muninnd renew-cert' to regenerate
 ```
 
 ```bash
-flockdard renew-cert   # generates new self-signed cert, restarts TLS listener
+muninnd renew-cert   # generates new self-signed cert, restarts TLS listener
 ```
 
 Or via Taskfile:
@@ -192,9 +192,9 @@ Firmware version is reported in `info` protocol records and visible in the node 
 
 ## Consequences
 
-- `flockdard update` sub-command added with SHA256 verification
+- `muninnd update` sub-command added with SHA256 verification
 - Embedded migrations run before modules start — zero manual migration steps
 - `task db:backup` should be run before any daemon update (documented in upgrade runbook)
 - `task sigs:pull` added for signature feed integration
 - `task firmware:flash:remote` enables flashing from dev machine via Pi serial passthrough
-- TLS cert expiry warning at 30 days, `flockdard renew-cert` sub-command
+- TLS cert expiry warning at 30 days, `muninnd renew-cert` sub-command

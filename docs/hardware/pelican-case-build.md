@@ -122,18 +122,18 @@ Uses a RP-SMA connector. If you want the antenna external, add a second panel-mo
 ## Software Setup
 
 ```bash
-# Install flockdard
-curl -L https://github.com/<org>/flockdard/releases/latest/download/flockdard-linux-arm64 \
-  -o /usr/local/bin/flockdard && chmod +x /usr/local/bin/flockdard
+# Install muninnd
+curl -L https://github.com/<org>/muninnd/releases/latest/download/muninnd-linux-arm64 \
+  -o /usr/local/bin/muninnd && chmod +x /usr/local/bin/muninnd
 
 # Install systemd unit
-flockdard install-service
+muninnd install-service
 
 # Edit config
-nano /etc/flockdard/config.toml
+nano /etc/muninn/config.toml
 
 # Start
-systemctl enable --now flockdard
+systemctl enable --now muninnd
 ```
 
 ### config.toml for Platform A
@@ -164,7 +164,7 @@ listen = "0.0.0.0:8080"
 tls    = false          # LAN only; set true + cert for WAN
 
 [store]
-path = "/var/lib/flockdard/detections.db"
+path = "/var/lib/muninn/detections.db"
 ```
 
 ---
@@ -174,6 +174,6 @@ path = "/var/lib/flockdard/detections.db"
 - [ ] LiPo charged (check voltage: 12.6V = full, 10.5V = cutoff)
 - [ ] H2T has GPS fix before deploying (LED solid = fix acquired, ~60s cold start)
 - [ ] Coconut interfaces visible: `iw dev | grep Interface | wc -l` should return 14+
-- [ ] Daemon running: `systemctl status flockdard`
+- [ ] Daemon running: `systemctl status muninnd`
 - [ ] Web UI accessible: `http://pi-pelican.local:8080`
 - [ ] Fans running (touch case to feel airflow)

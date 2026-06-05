@@ -25,8 +25,8 @@ The existing `flockdar` Python repository is retained as:
 
 ```
 cmd/
-  flockdard/        — daemon binary (main entry point)
-  flockdar/         — CLI binary (TUI, file analysis, one-shot tools)
+  muninnd/        — daemon binary (main entry point)
+  muninn/          — CLI binary (TUI, file analysis, one-shot tools)
 internal/
   daemon/           — daemon core, module registry
   modules/
@@ -52,12 +52,13 @@ docs/
 
 ## Naming
 
-The new repository may use a different name to reflect the expanded scope. Options under consideration:
+**`muninn`** — from Norse mythology, Odin's raven of Memory. The project mascot is Poe the raven (ADR-0022); the project is named for what the raven does.
 
-- `flockdar` — continuity, already known
-- A new name that reflects the multi-platform ecosystem nature
+Repository: `github.com/<org>/muninn`
 
-This is an open decision and does not affect the technical architecture.
+Binaries: `muninnd` (daemon), `muninn` (CLI)
+
+The Python prototype remains published as `flockdar` on PyPI and GitHub. It is not renamed or deprecated.
 
 ## Consequences
 

@@ -16,7 +16,7 @@ This follows the principle of least surprise: the file is the baseline, env vars
 ## Full configuration reference
 
 ```toml
-# /etc/flockdard/config.toml
+# /etc/muninn/config.toml
 
 # ── Node identity ─────────────────────────────────────────────────────────────
 [node]
@@ -51,8 +51,8 @@ baud    = 115200
 [api]
 listen_external  = "0.0.0.0:8443"    # bearer token + TLS
 listen_internal  = "127.0.0.1:8081"  # no auth, LAN sync endpoint only
-tls_cert         = "/var/lib/flockdard/tls/cert.pem"
-tls_key          = "/var/lib/flockdard/tls/key.pem"
+tls_cert         = "/var/lib/muninn/tls/cert.pem"
+tls_key          = "/var/lib/muninn/tls/key.pem"
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 [auth]
@@ -60,17 +60,17 @@ token = ""   # 32-byte base64url token — generated on first run if empty
 
 # ── Storage ───────────────────────────────────────────────────────────────────
 [store]
-path       = "/var/lib/flockdard/detections.db"
+path       = "/var/lib/muninn/detections.db"
 cache_mb   = 32          # SQLite page cache size
 
 # ── Tiles ─────────────────────────────────────────────────────────────────────
 [tiles]
-path     = "/var/lib/flockdard/tiles.pmtiles"  # omit to disable offline tiles
+path     = "/var/lib/muninn/tiles.pmtiles"  # omit to disable offline tiles
 max_zoom = 16
 
 # ── Signatures ────────────────────────────────────────────────────────────────
 [signatures]
-path         = "/var/lib/flockdard/signatures.toml"  # optional override
+path         = "/var/lib/muninn/signatures.toml"  # optional override
 feed_url     = ""           # leave empty to disable auto-pull
 auto_pull    = false
 pull_interval = "24h"
@@ -93,23 +93,23 @@ keys = {
 
 ## Environment variable overrides
 
-Every config key maps to an env var: `FLOCKDARD_` prefix + section + key in `SCREAMING_SNAKE_CASE`:
+Every config key maps to an env var: `MUNINN_` prefix + section + key in `SCREAMING_SNAKE_CASE`:
 
 | Config key | Env var |
 |---|---|
-| `node.id` | `FLOCKDARD_NODE_ID` |
-| `auth.token` | `FLOCKDARD_AUTH_TOKEN` |
-| `store.path` | `FLOCKDARD_STORE_PATH` |
-| `logging.level` | `FLOCKDARD_LOG_LEVEL` |
-| `modules.meshtastic.key` | `FLOCKDARD_MODULES_MESHTASTIC_KEY` |
+| `node.id` | `MUNINN_NODE_ID` |
+| `auth.token` | `MUNINN_AUTH_TOKEN` |
+| `store.path` | `MUNINN_STORE_PATH` |
+| `logging.level` | `MUNINN_LOG_LEVEL` |
+| `modules.meshtastic.key` | `MUNINN_MODULES_MESHTASTIC_KEY` |
 
 Env vars are useful in systemd unit override files:
 
 ```ini
-# /etc/systemd/system/flockdard.service.d/override.conf
+# /etc/systemd/system/muninnd.service.d/override.conf
 [Service]
-Environment=FLOCKDARD_LOG_LEVEL=debug
-Environment=FLOCKDARD_AUTH_TOKEN=my-token
+Environment=MUNINN_LOG_LEVEL=debug
+Environment=MUNINN_AUTH_TOKEN=my-token
 ```
 
 ## CLI flags
@@ -117,7 +117,7 @@ Environment=FLOCKDARD_AUTH_TOKEN=my-token
 Flags override both file and env vars. Available flags:
 
 ```
-flockdard --config /path/to/config.toml
+muninnd --config /path/to/config.toml
           --dev                           # dev mode: no TLS, no auth, localhost only
           --module wifi:wlan0             # add/override module at runtime
           --log-level debug
@@ -133,13 +133,13 @@ If `config.toml` doesn't exist, the daemon runs with safe defaults:
 ```
 node.id    = hostname
 auth.token = <generated 32-byte random, printed to stdout, written to config>
-tls cert   = <generated self-signed, written to /var/lib/flockdard/tls/>
+tls cert   = <generated self-signed, written to /var/lib/muninn/tls/>
 modules    = [] (no modules — web UI and API only)
-store.path = /var/lib/flockdard/detections.db
+store.path = /var/lib/muninn/detections.db
 logging    = info, auto format
 ```
 
-This lets you `flockdard` with no config and immediately access the web UI to configure it interactively (future).
+This lets you `muninnd` with no config and immediately access the web UI to configure it interactively (future).
 
 ## Config validation
 
@@ -158,12 +158,12 @@ FATAL config: hmac.keys["t-deck-van"] is not valid hex
 config:validate:
   desc: "Validate config file without starting daemon"
   cmds:
-    - flockdard --config {{.CONFIG | default "/etc/flockdard/config.toml"}} --validate-only
+    - muninnd --config {{.CONFIG | default "/etc/muninn/config.toml"}} --validate-only
 
 config:show:
   desc: "Print resolved config (with env vars applied, secrets redacted)"
   cmds:
-    - flockdard --config {{.CONFIG | default "/etc/flockdard/config.toml"}} --show-config
+    - muninnd --config {{.CONFIG | default "/etc/muninn/config.toml"}} --show-config
 ```
 
 ## Consequences

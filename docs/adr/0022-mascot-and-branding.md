@@ -68,14 +68,24 @@ The web UI favicon and header use a minimal raven silhouette SVG. Confidence tie
 
 ## Project name
 
-The new repository may use a raven-themed name. Options:
+**`muninn`** — from Norse mythology, one of Odin's two ravens. Muninn means *Memory*. The project remembers where surveillance cameras are. Poe the raven reports to Muninn.
 
-- `ravenwatch` — watching the Ravens
-- `corvid` — raven family, also "covert ID"
-- `poe` — mascot name, memorable, short
-- Keep `flockdar` — established, descriptive
+- Unique, not trademarked in this space
+- Literally means memory — accurate
+- Raven connection ties the mascot to the project name
+- Clean as a CLI binary name: `muninn scan`, `muninn daemon`, `muninn import`
+- Avoids trademark conflict with Flock Safety's "Raven" product line
 
-This is an open decision. The mascot is confirmed regardless of repository name.
+### Binary names
+
+| Binary | Purpose |
+|---|---|
+| `muninnd` | Daemon (scanner + API + web UI) |
+| `muninn` | CLI (file analysis, TUI, one-shot tools) |
+
+### Repository
+
+`github.com/<org>/muninn` — new repository (ADR-0002). The Python prototype remains at `flockdar`.
 
 ## Consequences
 

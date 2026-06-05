@@ -60,8 +60,8 @@ Requests without a valid token receive `401 Unauthorized`. The token is never lo
 A self-signed TLS certificate is generated at first run using the Pi's hostname as the CN:
 
 ```
-/var/lib/flockdard/tls/cert.pem
-/var/lib/flockdard/tls/key.pem
+/var/lib/muninn/tls/cert.pem
+/var/lib/muninn/tls/key.pem
 ```
 
 The daemon serves HTTPS only — no HTTP fallback. Certificate fingerprint is printed to stdout on first run for manual verification. Browser warning on self-signed cert is expected and acceptable for a local LAN tool.
@@ -71,8 +71,8 @@ For LAN deployments, mDNS (`pi-pelican.local`) is the access hostname. The self-
 ```toml
 [api]
 listen = "0.0.0.0:8443"
-tls_cert = "/var/lib/flockdard/tls/cert.pem"
-tls_key  = "/var/lib/flockdard/tls/key.pem"
+tls_cert = "/var/lib/muninn/tls/cert.pem"
+tls_key  = "/var/lib/muninn/tls/key.pem"
 ```
 
 ### Rate limiting
@@ -122,8 +122,8 @@ GPS traces are stored in SQLite alongside detection records. They are never tran
 The token is displayed once on daemon startup:
 
 ```
-flockdard: web UI available at https://pi-pelican.local:8443
-flockdard: bearer token: <token>  (also in /etc/flockdard/config.toml)
+muninnd: web UI available at https://pi-pelican.local:8443
+muninnd: bearer token: <token>  (also in /etc/muninn/config.toml)
 ```
 
 Share the token with trusted clients via a QR code (`task auth:qr`) printed to terminal — phone camera scans it to configure the mobile web UI.
@@ -133,7 +133,7 @@ Share the token with trusted clients via a QR code (`task auth:qr`) printed to t
 auth:qr:
   desc: "Print web UI access QR code to terminal"
   cmds:
-    - go run ./cmd/flockdar auth-qr --config /etc/flockdard/config.toml
+    - go run ./cmd/muninn auth-qr --config /etc/muninn/config.toml
 ```
 
 ---
@@ -141,7 +141,7 @@ auth:qr:
 ## Consequences
 
 - All API endpoints require bearer token except `/healthz` (for systemd watchdog)
-- TLS cert generated on first `flockdard --config /etc/flockdard/config.toml` if not present
+- TLS cert generated on first `muninnd --config /etc/muninn/config.toml` if not present
 - `task install` prints the token and cert fingerprint after deploy
 - `--dev` mode: no TLS, no auth, binds to localhost only, logs a warning
 - WebSocket token passed as query param — token appears in server access logs; logs are root-only readable
